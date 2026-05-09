@@ -1,0 +1,8 @@
+ZAMPLE_CODE/
+**/__pycache__/
+*.pyc
+**/.vscode/
+ANSI_SCREEN/
+
+extract_code.ps1
+code_context.md

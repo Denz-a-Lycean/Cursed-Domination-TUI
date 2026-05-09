@@ -1,0 +1,20 @@
+{
+    "name": "aaaaaaaaaaa",
+    "class": "Seeker",
+    "hp": 93,
+    "max_hp": 100,
+    "attack": 10,
+    "level": 1,
+    "exp": 40,
+    "domain_meter": 38,
+    "mental_instability": 0,
+    "death_count": 0,
+    "inventory": [
+        "HealItem",
+        "DomainChargeItem",
+        "AttackBoostItem",
+        "HealItem"
+    ],
+    "stage": 2,
+    "play_time_seconds": 22240
+}
