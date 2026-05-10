@@ -1075,7 +1075,8 @@ class AnsiGamePresenter:
 
             if parsed:
                 if len(options) <= 4:
-                    msg = f"What will {parsed.get('player_name', 'Player')} do?  ({selected + 1}.{options[selected]})"
+                    # Gameplay prompt should not mirror the full option text into the message log (it can become cramped).
+                    msg = f"What will {parsed.get('player_name', 'Player')} do?  ({selected + 1})"
                     footer_text = "[ ARROWS ] Move  [ ENTER ] Confirm  [ ESC ] Quit"
                     menu_start = 0
                 else:

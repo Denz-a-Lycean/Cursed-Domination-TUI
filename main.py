@@ -25,6 +25,9 @@ from models.player import Player
 from systems.save_manager import load_game, save_exists
 import re
 
+from utils.effects import set_glitch_level
+
+
 # Global state
 class GameState:
     def __init__(self):
@@ -481,14 +484,20 @@ def main():
                 # if the scene uses `actions`, update it too for backwards compatibility
                 if hasattr(screen, 'actions'):
                     screen.actions = ["PUNCH", "SKILL", "DOMAIN", "ITEM"]
-            except Exception:
-                pass
+            except Exception as exc:
+                print(f"[ERROR] Failed to set gameplay action labels for {key}: {exc}", file=sys.stderr, flush=True)
 
     try:
         current_state = "SCREEN_MAIN_MENU"
+
+        # Shell/UI screens must stay stable (gameplay instability is for gameplay atmospherics only).
+        set_glitch_level(0)
         
         # Application State Machine
         while current_state != "EXIT":
+            # Keep shell/UI navigation layers stable. Gameplay screens re-enable glitches themselves.
+            if current_state in ("SCREEN_MAIN_MENU", "SCREEN_LOAD_GAME", "SCREEN_SETTINGS", "SCENES_MENU", "SCREEN_NEW_GAME", "CHARACTER_SELECTION", "SCREEN_CONFIRM_EXIT"):
+                set_glitch_level(0)
             # Clear any leftover output before running screen
             sys.stdout.write(f"{ESC}2J{ESC}H")
             sys.stdout.flush()
