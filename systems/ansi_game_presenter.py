@@ -21,10 +21,6 @@ from core.engine import (
     get_keypress_nb,
 )
 from utils.effects import Colors, color_text
-try:
-    from Ui_test import CursedDominationUI
-except ImportError:
-    CursedDominationUI = None
 
 try:
     from utils.validator import ValidationError, validate_menu_index
@@ -631,12 +627,13 @@ def _render_pokemon_combat_panel(
         f"{FG_LABEL}STAGE{RESET}: {Colors.WHITE}{stage_num:02d}{RESET} | "
         f"{FG_LABEL}BATTLE TIME{RESET}: {Colors.WHITE}{parsed.get('battle_time', '00:00')}{RESET}"
     )
+    # Render meta line aligned with inner content (px already includes left padding)
     buf = _render_at(buf, oy, px, 1, 0, _pad_ansi_line(meta_line, inner))
 
     enemy_box_w = min(52, inner - 8)
     player_box_w = min(52, inner - 8)
     enemy_box_x = inner - enemy_box_w - 2
-    player_box_x = 1
+    player_box_x = 2
 
     enemy_lines = [
         f"{FG_DIM}HP{RESET} {_segmented_bar(parsed['enemy_hp'], parsed['enemy_max'], 20, Colors.WHITE)} {Colors.WHITE}{parsed['enemy_hp']}/{parsed['enemy_max']}{RESET}",
@@ -661,13 +658,13 @@ def _render_pokemon_combat_panel(
         parsed.get("enemy_type", ""),
         stage_num,
     )
-    buf = _render_block(buf, oy, px, 7, 1, battlefield_lines)
+    buf = _render_block(buf, oy, px, 7, 2, battlefield_lines)
     buf = _render_block(buf, oy, px, 16, player_box_x, player_box)
 
     # Rebalance the consoles to reduce cramped feel.
     command_box_w = 48
     message_box_w = inner - command_box_w - 4
-    command_box_x = 1
+    command_box_x = 2
     message_box_x = command_box_x + command_box_w + 4
 
     if cmd_options:
@@ -767,56 +764,16 @@ def _build_ui_test_menu_lines(
     allow_escape: bool,
 ) -> list[str]:
     """
-    Build gameplay HUD/menu lines using `Ui_test.py` conventions.
-    Falls back to internal formatting if the helper class isn't available.
+    Build gameplay HUD/menu lines.
     """
-    if CursedDominationUI is None:
-        base = _fmt_hud_lines(data)
-        base.append("")
-        base.append("Actions:")
-        for i, opt in enumerate(options, start=1):
-            base.append(f"[{i}] {opt}")
-        base.append("")
-        base.append(_render_help_footer(help_text, len(options), allow_escape))
-        return base
-
-    ui = CursedDominationUI(width=panel_w - 2)
-    hp_bar = ui._make_bar(data["hp"], data["hp_max"], 18, ui.W)
-    dom_bar = ui._make_bar(data["domain"], 100, 14, ui.C)
-    enemy_bar = ui._make_bar(data["enemy_hp"], data["enemy_max"], 18, ui.R)
-
-    action_rows = []
-    left_w = 40
-    right_w = max(24, panel_w - left_w - 9)
-    tips = [
-        f"Enemy HP  {enemy_bar}",
-        f"Instability {data['instability']}/5" + (" [DEFENDING]" if data.get("defending") else ""),
-        f"Domain {data['domain']}%  Stage {data['stage']}",
-    ]
-    while len(tips) < len(options):
-        tips.append("")
-
-    for i, opt in enumerate(options):
-        left = f"{ui.B}{ui.W}[{i+1}]{ui.X} {opt}".ljust(left_w)
-        right = f"{ui.G}» {tips[i]}{ui.X}".ljust(right_w)
-        action_rows.append(f"  │ {left} │ {right} │")
-
-    lines = [
-        f"{ui.C}Clock{ui.X} Run {data['game_time']} | Fight {data['battle_time']} | Stage {data['stage']}",
-        "",
-        f"{ui.R}Enemy:{ui.X} {enemy_bar}",
-        "",
-        f"{ui.W}{data['player_name']}{ui.X}",
-        f"HP     {hp_bar}",
-        f"DOMAIN {dom_bar}",
-        "",
-        f"  ┌{'─' * (left_w + 2)}┬{'─' * (right_w + 2)}┐",
-    ]
-    lines.extend(action_rows)
-    lines.append(f"  └{'─' * (left_w + 2)}┴{'─' * (right_w + 2)}┘")
-    lines.append("")
-    lines.append(_render_help_footer(help_text, len(options), allow_escape))
-    return lines
+    base = _fmt_hud_lines(data)
+    base.append("")
+    base.append("Actions:")
+    for i, opt in enumerate(options, start=1):
+        base.append(f"[{i}] {opt}")
+    base.append("")
+    base.append(_render_help_footer(help_text, len(options), allow_escape))
+    return base
 
 
 class AnsiGamePresenter:
@@ -899,6 +856,7 @@ class AnsiGamePresenter:
             side_title=side_title,
         )
         footer_text = footer or ""
+        # Footer spans full frame width and should start at the left border
         buf += f"{ESC}{self.oy + self.window.height - 1};{self.ox}H{_footer_bar(self.window.width, footer_text)}"
         return buf
 
@@ -948,13 +906,14 @@ class AnsiGamePresenter:
             if key == "":
                 continue
 
-    def loading(self, title, message, status_lines=None, seconds=1.8, interval=0.35):
+    def loading(self, title, message, status_lines=None, status_data=None, seconds=1.8, interval=0.35):
         self._push_log(message)
         effective = max(0.35, float(seconds) * 0.75)
         step = max(0.12, float(interval) * 0.85)
         end = time.monotonic() + effective
         dot = 0
-        parsed = _parse_combat_status(list(status_lines or [])) if status_lines else None
+        parsed = status_data if status_data is not None else (_parse_combat_status(list(status_lines or [])) if status_lines else None)
+
         while time.monotonic() < end:
             dots = "." * ((dot % 3) + 1)
             if parsed:
@@ -1128,6 +1087,7 @@ class AnsiGamePresenter:
         defender_defending=False,
         indicator_label=None,
         status_lines=None,
+        status_data=None,
         seconds=1.1,
         shake=False,
     ):
@@ -1144,7 +1104,10 @@ class AnsiGamePresenter:
                 self._push_log(f"{attacker_name} used {attack_name}.")
 
             # resolve HUD so the animation matches the Pokémon layout
-            st = status_lines() if callable(status_lines) else status_lines
+            if status_data is not None:
+                st = status_data() if callable(status_data) else status_data
+            else:
+                st = status_lines() if callable(status_lines) else status_lines
             parsed = _parse_combat_status(list(st or [])) if st else None
 
             buf = self._frame_buffer(title)
@@ -1198,6 +1161,7 @@ class AnsiGamePresenter:
         domain_name,
         technique_key,
         status_lines=None,
+        status_data=None,
         seconds=1.1,
         interval=0.09,
     ):
@@ -1208,7 +1172,10 @@ class AnsiGamePresenter:
             if i == 0:
                 self._push_log(f"DOMAIN EXPANSION: {domain_name}")
 
-            st = status_lines() if callable(status_lines) else status_lines
+            if status_data is not None:
+                st = status_data() if callable(status_data) else status_data
+            else:
+                st = status_lines() if callable(status_lines) else status_lines
             parsed = _parse_combat_status(list(st or [])) if st else None
 
             buf = self._frame_buffer(title)
@@ -1265,6 +1232,7 @@ class AnsiGamePresenter:
         domain_name,
         technique_key,
         status_lines=None,
+        status_data=None,
         duration_seconds=30.0,
         interval=0.25,
     ):
@@ -1297,10 +1265,13 @@ class AnsiGamePresenter:
                 "The curse struggles against your rule...",
             ]
 
-            if callable(status_lines):
-                st = status_lines()
+            if status_data is not None:
+                st = status_data() if callable(status_data) else status_data
             else:
-                st = status_lines
+                if callable(status_lines):
+                    st = status_lines()
+                else:
+                    st = status_lines
             parsed = _parse_combat_status(list(st or [])) if st else None
 
             if parsed:

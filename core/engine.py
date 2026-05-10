@@ -477,11 +477,16 @@ class BaseScreen:
             sys.stdout.write(buffer)
             sys.stdout.flush()
 
-            key = get_keypress()
+            key = get_keypress_nb()
+            if key is None:
+                time.sleep(0.01)
+                continue
+
             if key == "ESC":
                 return "EXIT"
 
             result = self.handle_key(key)
+
 
             if result == "NEXT":
                 self.focus_index = self._get_next_focus(self.focus_index, 1)

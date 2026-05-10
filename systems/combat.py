@@ -46,8 +46,10 @@ class CombatSystem:
                 defender_defending=defender_defending,
                 indicator_label=indicator_label,
                 status_lines=self._status_lines,
+                status_data=self._status_data,
                 seconds=seconds,
                 shake=shake,
+
             )
             return
 
@@ -95,8 +97,10 @@ class CombatSystem:
                 domain_name=domain_name,
                 technique_key=technique_key,
                 status_lines=self._status_lines,
+                status_data=self._status_data,
                 duration_seconds=duration_seconds,
                 interval=interval,
+
             )
             return
 
@@ -126,8 +130,10 @@ class CombatSystem:
                 domain_name=domain_name,
                 technique_key=technique_key,
                 status_lines=self._status_lines,
+                status_data=self._status_data,
                 seconds=seconds,
                 shake=False,
+
             )
             return
 
@@ -202,18 +208,36 @@ class CombatSystem:
                 )
                 return "LOSE"
 
-    def _status_lines(self):
-        """Build the live combat HUD shown on every battle screen."""
-        game_time = self.game.total_elapsed_time if self.game else 0
+    def _status_data(self):
+        """Structured HUD data for the presenter (no regex parsing required)."""
         battle_time = time.monotonic() - self.battle_start_time
         stage_number = self.game.current_stage if self.game else self.enemy.stage
-        defend_tag = " [DEFENDING]" if self.player.defending else ""
-        # Simplify HUD: show only Battle Time to reduce redundancy and user confusion.
+        return {
+            "battle_time": format_duration(battle_time),
+            "player_name": self.player.name,
+            "player_class": self.player.player_class,
+            "hp": self.player.hp,
+            "hp_max": self.player.max_hp,
+            "domain": self.player.domain_meter,
+            "instability": self.player.mental_instability,
+            "defending": bool(self.player.defending),
+            "enemy_name": self.enemy.name,
+            "enemy_type": self.enemy.enemy_type,
+            "stage": stage_number,
+            "enemy_hp": self.enemy.hp,
+            "enemy_max": self.enemy.max_hp,
+        }
+
+    def _status_lines(self):
+        """Backward-compatible legacy HUD lines (used only if presenter expects strings)."""
+        d = self._status_data()
+        defend_tag = " [DEFENDING]" if d.get("defending") else ""
         return [
-            f"Battle Time: {format_duration(battle_time)}",
-            f"Player: {self.player.name} ({self.player.player_class}) | HP {self.player.hp}/{self.player.max_hp} | Domain {self.player.domain_meter}% | Instability {self.player.mental_instability}{defend_tag}",
-            f"Enemy: {self.enemy.name} | Type {self.enemy.enemy_type} | Stage {stage_number} | Enemy HP {self.enemy.hp}/{self.enemy.max_hp}",
+            f"Battle Time: {d['battle_time']}",
+            f"Player: {d['player_name']} ({d['player_class']}) | HP {d['hp']}/{d['hp_max']} | Domain {d['domain']}% | Instability {d['instability']}{defend_tag}",
+            f"Enemy: {d['enemy_name']} | Type {d['enemy_type']} | Stage {d['stage']} | Enemy HP {d['enemy_hp']}/{d['enemy_max']}",
         ]
+
 
     def player_turn(self):
         """Handle player action selection until a turn is consumed."""

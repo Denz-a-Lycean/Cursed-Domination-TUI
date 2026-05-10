@@ -65,13 +65,15 @@ class MainMenuScreen(BaseScreen):
             Label(cx - 20, cy - 9, "┌──────────────────────────────────────┐", FG_BORDER),
             Label(cx - 20, cy - 8, "│          CURSED DOMINATION           │", FG_TITLE),
             Label(cx - 20, cy - 7, "└──────────────────────────────────────┘", FG_BORDER),
-            Label(cx - 6,  cy - 6, "v1.0.0 Alpha", FG_BORDER),
+            Label(cx - 6,  cy - 6, "v1.67", FG_BORDER),
             
             Button(cx - 5, cy - 3, "New Game", "SCREEN_NEW_GAME"),
             Button(cx - 5, cy - 1, "Load Game", "SCREEN_LOAD_GAME"),
-            Button(cx - 5, cy + 1, "Settings", "SCREEN_SETTINGS"),
-            Button(cx - 5, cy + 3, "Scenes", "SCENES_MENU"),
-            Button(cx - 3, cy + 5, "Quit", "EXIT")
+            Button(cx - 5, cy + 1, "Quit", "EXIT")
+
+            # Button(cx - 5, cy + 1, "Settings", "SCREEN_SETTINGS"),
+            # Button(cx - 5, cy + 3, "Scenes", "SCENES_MENU"),
+            # Button(cx - 3, cy + 5, "Quit", "EXIT")
         ]
 
 class LoadGameScreen(BaseScreen):
@@ -318,7 +320,7 @@ class SkillSelectionScreen(BaseScreen):
                 self.widgets.append(Label(table_x, table_y + 3 + i*2, "─" * 100, FG_BORDER))
 
         # Bottom Actions
-        self.confirm_btn = Button(cx - 15, cy + 12, "Confirm Selection [Enter]", "EMBARK")
+        self.confirm_btn = Button(cx - 15, cy + 12, "Confirm [Enter]", "EMBARK")
         self.widgets.append(self.confirm_btn)
         self.widgets.append(Button(cx + 10,  cy + 12, "Back", "SCREEN_NEW_GAME"))
 
@@ -351,8 +353,8 @@ class ConfirmExitScreen(BaseScreen):
 
         self.widgets = [
             Label(cx - 15, cy - 4, "Are you sure you want to exit?", FG_TITLE),
-            Button(cx - 12, cy + 1, "Yes, Exit", "EXIT"),
-            Button(cx + 2,  cy + 1, "No, Return", "RETURN_TO_PREV")
+            Button(cx - 12, cy + 1, "Yes", "EXIT"),
+            Button(cx + 2,  cy + 1, "No", "RETURN_TO_PREV")
         ]
 
     def handle_key(self, key: str):
@@ -473,7 +475,6 @@ def main():
     # Register story scenes and gameplay anchors from the canonical campaign registry.
     screens.update(build_campaign_screens(window, state))
 
-    # Make battle action labels match Ui_test.py formatting (e.g. "1.PUNCH", "2.SKILL", ...)
     gameplay_action_labels = ["1.PUNCH", "2.SKILL", "3.DOMAIN", "4.ITEM"]
     for key in GAMEPLAY_SCREEN_KEYS:
         screen = screens.get(key)

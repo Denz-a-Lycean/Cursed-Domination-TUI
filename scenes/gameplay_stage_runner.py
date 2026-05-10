@@ -67,10 +67,13 @@ class GameplayStageBattleScreen(BaseScreen):
 
         game._prepare_stage()
         game._capture_checkpoint()
+        # Stage checkpoint is now authoritative inside `Game`.
+        # Keep UI-facing stage index in global state only.
         self.state.checkpoint_stage = self.stage_num
-        self.state.last_checkpoint_payload = dict(game._checkpoint_state)
+        self.state.last_checkpoint_payload = dict(game._checkpoint_state) if isinstance(game._checkpoint_state, dict) else None
 
         self._sync_glitch_ui(self.state.player)
+
 
         while True:
             enemy = game.generate_enemy()
@@ -95,11 +98,10 @@ class GameplayStageBattleScreen(BaseScreen):
 
             retry = game.death_system()
             self._sync_glitch_ui(self.state.player)
-            cp = game._checkpoint_state
-            self.state.last_checkpoint_payload = dict(cp) if isinstance(cp, dict) else None
 
             if not retry:
                 return "SCREEN_MAIN_MENU"
+
 
 
 class GameplayTutorialScreen(GameplayStageBattleScreen):
