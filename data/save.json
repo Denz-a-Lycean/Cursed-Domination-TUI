@@ -1,0 +1,21 @@
+{
+    "name": "antonet",
+    "class": "Bouncer",
+    "hp": 51,
+    "max_hp": 100,
+    "attack": 10,
+    "level": 1,
+    "exp": 90,
+    "domain_meter": 100,
+    "mental_instability": 0,
+    "death_count": 0,
+    "inventory": [
+        "HealItem",
+        "DomainChargeItem",
+        "AttackBoostItem",
+        "HealItem",
+        "DomainChargeItem"
+    ],
+    "stage": 3,
+    "play_time_seconds": 51
+}
