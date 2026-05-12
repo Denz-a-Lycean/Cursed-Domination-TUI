@@ -5,7 +5,7 @@ import time
 from utils.effects import format_duration
 
 # UX tuning constants
-DOMAIN_SELECTION_WINDOW = 20.0  # seconds for the player selection window inside a domain
+DOMAIN_SELECTION_WINDOW = 5.0  # seconds for the player selection window inside a domain
 DOMAIN_POST_ATTACK_ANIMATION = 1.2  # seconds for domain hit animation (fast, no long cinematic)
 
 
@@ -38,19 +38,33 @@ class CombatSystem:
         gracefully falls back to the existing loading transition.
         """
         if hasattr(self.presenter, "attack_animation"):
-            self.presenter.attack_animation(
-                title,
-                attacker_name=attacker_name,
-                defender_name=defender_name,
-                attack_name=attack_name,
-                defender_defending=defender_defending,
-                indicator_label=indicator_label,
-                status_lines=self._status_lines,
-                status_data=self._status_data,
-                seconds=seconds,
-                shake=shake,
-
-            )
+            # Some presenters (e.g. AutoPresenter used by smoke tests) may not accept
+            # all optional kwargs (like status_data/status_lines). Keep the call
+            # tolerant and fall back to the minimal animation signature.
+            try:
+                self.presenter.attack_animation(
+                    title,
+                    attacker_name=attacker_name,
+                    defender_name=defender_name,
+                    attack_name=attack_name,
+                    defender_defending=defender_defending,
+                    indicator_label=indicator_label,
+                    status_lines=self._status_lines,
+                    status_data=self._status_data,
+                    seconds=seconds,
+                    shake=shake,
+                )
+            except TypeError:
+                self.presenter.attack_animation(
+                    title,
+                    attacker_name=attacker_name,
+                    defender_name=defender_name,
+                    attack_name=attack_name,
+                    defender_defending=defender_defending,
+                    indicator_label=indicator_label,
+                    seconds=seconds,
+                    shake=shake,
+                )
             return
 
         self.presenter.loading(
@@ -90,18 +104,29 @@ class CombatSystem:
     ):
         """Play domain expansion timer when supported by presenter."""
         if hasattr(self.presenter, "domain_expansion_animation"):
-            self.presenter.domain_expansion_animation(
-                title=title,
-                attacker_name=attacker_name,
-                defender_name=defender_name,
-                domain_name=domain_name,
-                technique_key=technique_key,
-                status_lines=self._status_lines,
-                status_data=self._status_data,
-                duration_seconds=duration_seconds,
-                interval=interval,
-
-            )
+            # Some presenters may not accept all optional kwargs.
+            try:
+                self.presenter.domain_expansion_animation(
+                    title=title,
+                    attacker_name=attacker_name,
+                    defender_name=defender_name,
+                    domain_name=domain_name,
+                    technique_key=technique_key,
+                    status_lines=self._status_lines,
+                    status_data=self._status_data,
+                    duration_seconds=duration_seconds,
+                    interval=interval,
+                )
+            except TypeError:
+                self.presenter.domain_expansion_animation(
+                    title=title,
+                    attacker_name=attacker_name,
+                    defender_name=defender_name,
+                    domain_name=domain_name,
+                    technique_key=technique_key,
+                    duration_seconds=duration_seconds,
+                    interval=interval,
+                )
             return
 
         # Fallback for test/manual presenters (avoid long waits).
@@ -123,18 +148,30 @@ class CombatSystem:
     ):
         """Play domain hit animation when supported by presenter."""
         if hasattr(self.presenter, "domain_attack_animation"):
-            self.presenter.domain_attack_animation(
-                title=title,
-                attacker_name=attacker_name,
-                defender_name=defender_name,
-                domain_name=domain_name,
-                technique_key=technique_key,
-                status_lines=self._status_lines,
-                status_data=self._status_data,
-                seconds=seconds,
-                shake=False,
+            # Some presenters may not accept all optional kwargs.
+            try:
+                self.presenter.domain_attack_animation(
+                    title=title,
+                    attacker_name=attacker_name,
+                    defender_name=defender_name,
+                    domain_name=domain_name,
+                    technique_key=technique_key,
+                    status_lines=self._status_lines,
+                    status_data=self._status_data,
+                    seconds=seconds,
+                    shake=False,
+                )
+            except TypeError:
+                self.presenter.domain_attack_animation(
+                    title=title,
+                    attacker_name=attacker_name,
+                    defender_name=defender_name,
+                    domain_name=domain_name,
+                    technique_key=technique_key,
+                    seconds=seconds,
+                    shake=False,
+                )
 
-            )
             return
 
         # Fallback: use the regular attack animation hook if available.

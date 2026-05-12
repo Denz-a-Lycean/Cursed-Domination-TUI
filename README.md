@@ -1,3 +1,4 @@
+
 # ANSI_SCREEN
 
 A terminal-based, ANSI-styled text game built in Python.
@@ -43,8 +44,3 @@ If available in your environment:
 ```bash
 python -m tests.smoke_playthrough
 ```
-
-## License
-
-(Add a license file/link if this project is intended to be shared publicly.)
-

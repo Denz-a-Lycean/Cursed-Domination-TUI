@@ -1110,7 +1110,7 @@ class AnsiGamePresenter:
                 st = status_lines() if callable(status_lines) else status_lines
             parsed = _parse_combat_status(list(st or [])) if st else None
 
-            buf = self._frame_buffer(title)
+            # prepare base buffers and geometry
             inner_w = self.window.width - 4
             panel_w = inner_w
             px = self.ox + 2
@@ -1138,17 +1138,40 @@ class AnsiGamePresenter:
                 proj_row = self.oy + 11
                 buf += f"{ESC}{proj_row};{px}H{_pad_ansi_line(_clamp(proj_line, inner), inner)}"
             else:
-                # fallback: keep it readable even without combat HUD
-                row2 = 6
-                lines = [
-                    f"{attacker_name} → {defender_name}",
-                    f"Technique: {_clamp(attack_name, 40)}",
-                    "",
-                    f">> {label}",
-                ]
-                for ln in lines:
-                    buf += f"{ESC}{self.oy + row2};{self.ox + 2}H{FG_WHITE}{_clamp(ln, inner_w)}{RESET}"
-                    row2 += 1
+                # fallback: build a minimal parsed HUD so we can overlay the
+                # animation without clearing the whole UI.
+                minimal_parsed = {
+                    "stage": 0,
+                    "battle_time": "00:00",
+                    "enemy_hp": 0,
+                    "enemy_max": 0,
+                    "hp": 0,
+                    "hp_max": 0,
+                    "domain": 0,
+                    "instability": 0,
+                    "player_name": attacker_name or "PLAYER",
+                    "player_class": "Seeker",
+                    "enemy_name": defender_name or "ENEMY",
+                    "enemy_type": "",
+                }
+
+                msg = f"{attacker_name} → {defender_name}  {attack_name} [{label}]"
+                buf = self._battle_panel_buffer(
+                    title=title,
+                    parsed=minimal_parsed,
+                    message=msg,
+                    footer="Attack resolving. Controls hidden until impact.",
+                    side_lines=self._last_logs(3),
+                    side_title="COMBAT FEED",
+                    frame=frame,
+                )
+                # small floating box centered near the battlefield
+                float_w = min(40, inner_w - 8)
+                float_x = px + (inner_w - float_w) // 2
+                float_y = self.oy + 9
+                box = _box_lines("", float_w, [f"{attacker_name} used {attack_name}", f"[{label}]"], title_color=FG_LABEL)
+                for i, ln in enumerate(box):
+                    buf += f"{ESC}{float_y + i};{float_x}H{_pad_ansi_line(_clamp(ln, float_w), float_w)}"
 
             self._write_full(buf)
             time.sleep(0.08)
@@ -1301,7 +1324,8 @@ class AnsiGamePresenter:
                 # Inner: live countdown + barrier line
                 outer_w = min(inner_w - 4, 60)
                 outer_y = self.oy + 7
-                outer_x = px + 2 + (inner_w - outer_w) // 2
+                # center outer box in the full frame, not relative to px padding
+                outer_x = self.ox + (self.window.width - outer_w) // 2
 
                 # Outer box body (kept stable)
                 outer_body = [
@@ -1321,7 +1345,7 @@ class AnsiGamePresenter:
                 # Inner box slightly lower + smaller for the "second layer"
                 inner_w_box = max(28, outer_w - 10)
                 inner_y = outer_y + 2
-                inner_x = px + 2 + (inner_w - inner_w_box) // 2
+                inner_x = self.ox + (self.window.width - inner_w_box) // 2
 
                 bar_line = f"{FG_LABEL}BARRIER{RESET} {barrier_bar}"
                 timer_line = f"{Colors.CYAN}T-{remaining:05.1f}s{RESET}"
@@ -1347,7 +1371,8 @@ class AnsiGamePresenter:
                 msg = msgs[int(elapsed * 2) % len(msgs)]
 
                 overlay_w = min(inner_w - 4, 52)
-                overlay_x = px + 2 + (inner_w - overlay_w) // 2
+                # center overlay in the frame
+                overlay_x = self.ox + (self.window.width - overlay_w) // 2
                 outer_y = self.oy + 7
 
                 outer_body = [
@@ -1361,7 +1386,7 @@ class AnsiGamePresenter:
 
                 inner_w_box = max(26, overlay_w - 10)
                 inner_y = outer_y + 2
-                inner_x = px + 2 + (inner_w - inner_w_box) // 2
+                inner_x = self.ox + (self.window.width - inner_w_box) // 2
                 inner_box = _box_lines(
                     title="",
                     width=inner_w_box,
@@ -1487,8 +1512,41 @@ class AnsiGamePresenter:
                 glyph_line = f"{Colors.BRIGHT_YELLOW}{glyph * intensity}{RESET}"
                 buf += f"{ESC}{center_row};{center_col}H{glyph_line}"
             else:
-                buf = self._frame_buffer(title)
-                buf += f"{ESC}{self.oy + 8};{self.ox + 2}H{FG_WHITE}{_clamp(f'{domain_name} {strike_label}', inner_w)}{RESET}"
+                # Fallback: ensure we still render the battle HUD (minimal)
+                minimal_parsed = {
+                    "stage": 0,
+                    "battle_time": "00:00",
+                    "enemy_hp": 0,
+                    "enemy_max": 0,
+                    "hp": 0,
+                    "hp_max": 0,
+                    "domain": 0,
+                    "instability": 0,
+                    "player_name": attacker_name or "PLAYER",
+                    "player_class": "Seeker",
+                    "enemy_name": defender_name or "ENEMY",
+                    "enemy_type": "",
+                }
+
+                buf = self._battle_panel_buffer(
+                    title=title,
+                    parsed=minimal_parsed,
+                    message=f"{domain_name} {strike_label}",
+                    footer="Domain impact! (Hit resolving...)",
+                    side_lines=self._last_logs(3),
+                    side_title="DOMAIN",
+                    frame=frame,
+                )
+
+                # small centered impact label overlay for non-parsed state
+                inner_w = self.window.width - 4
+                px = self.ox + 2
+                overlay_w = min(40, inner_w - 8)
+                overlay_x = px + (inner_w - overlay_w) // 2
+                overlay_y = self.oy + 8
+                overlay_lines = _box_lines("", overlay_w, [f"{domain_name} {strike_label}"], title_color=Colors.BRIGHT_RED)
+                for i, ln in enumerate(overlay_lines):
+                    buf += f"{ESC}{overlay_y + i};{overlay_x}H{_pad_ansi_line(_clamp(ln, overlay_w), overlay_w)}"
 
             self._write_full(buf)
             time.sleep(0.09)
