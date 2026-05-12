@@ -1,5 +1,7 @@
+import os
 import time
 import sys
+import random
 try:
     # When used as a package
     from core.engine import BaseScreen, Label, FG_TITLE, FG_BORDER, FG_LABEL, Button, TextBox, WindowManager, FG_DIM, ESC, FG_WHITE
@@ -47,9 +49,169 @@ class GameState:
     def total_elapsed_time(self):
         return self.elapsed_time_before_session + (time.monotonic() - self.start_time)
 
+
+# --- Debug autopilot (TUI/UI-UX verification helper) ---
+# Purpose: Provide a lightweight, deterministic simulation of high-level user
+# actions so automated agents (human or AI) can traverse TUI screens to
+# collect rendered output frames, verify layout, and test UI/UX flows without
+# emulating low-level keyboard input. This is strictly a debugging aid for
+# TUI/UI-UX verification and NOT a gameplay agent.
+# Usage: enable by running `python main.py -copilot` only. Do NOT enable this
+# via environment variables or in production runs.
+# Behavior summary:
+#  - Autopilot discovers actionable widgets by attribute (presence of
+#    `action_name`) and only selects widgets that are `is_enabled` (truthy).
+#  - Preferred widgets are chosen if their visible label contains common
+#    affirming keywords (e.g. continue/confirm/next/embark/load). Selection is
+#    deterministic (shortest label first, then lexicographic) to aid repeatable
+#    captures for automated analysis.
+#  - Simple `TextBox` widgets are autofilled with minimal safe defaults (e.g.
+#    a fallback player name) to allow flows that require string entry to
+#    proceed. This assignment is conservative and limited to UI traversal.
+#  - If no actionable widget is found within the attempt window, autopilot
+#    returns the high-level action "EXIT" so the application moves to a safe
+#    exit flow rather than blocking indefinitely.
+# Safety and scope:
+#  - Autopilot is intended for debugging and output capture only; it should
+#    not perform or validate complex game logic. It intentionally avoids
+#    emulating hardware/OS-level input and does not attempt to reproduce human
+#    timing nuances. Use other testing infrastructure for gameplay QA.
+#  - To make a widget visible to autopilot, ensure it exposes `action_name`
+#    and that `is_enabled` reflects its availability when `setup_ui()` runs.
+# Extensibility:
+#  - Screens or widgets may add attributes such as `copilot_hint` or
+#    `copilot_priority` and modify `_auto_choose_action()` to honor them for
+#    more fine-grained control.
+AUTO_PILOT = '-copilot' in sys.argv
+try:
+    AUTO_PILOT_DELAY = float(os.environ.get('COPILOT_DELAY', '0.25'))
+except Exception:
+    AUTO_PILOT_DELAY = 0.25
+
+# NOTE: core.engine uses direct keyboard reads, so autopilot is implemented
+# by auto-navigating focus/state at the screen level (no real keyboard).
+# We keep this lightweight: when enabled, we try to confirm/advance using
+# deterministic choices based on widget labels and current screen title.
+
+
+class AutoPilotMixin:
+    """Mixin to make `BaseScreen.run()` effectively non-interactive for debug captures.
+
+    Intended audience: other automated agents (AI copilots, test harnesses) using
+    this runtime to exercise and capture TUI output. This mixin provides a
+    conservative, deterministic pathway through UI screens by choosing actionable
+    widgets at the screen level rather than simulating raw keystrokes.
+
+    Key guarantees for AI consumers:
+    - Deterministic selection: picks the shortest, most-semantic label first.
+    - Attribute-driven discovery: relies on `action_name` and `is_enabled`.
+    - Low blast radius: only writes minimal autofill to `TextBox.value` and
+      returns high-level action keys (strings) to let the main loop decide the
+      next state.
+    - Predictable failure mode: returns "EXIT" when no suitable action is
+      found, enabling safe exit flows.
+    """
+
+    def _auto_choose_action(self):
+        # Attribute-driven discovery:
+        # Accept any widget that exposes an `action_name` attribute and is
+        # enabled (`is_enabled` truthy). This avoids fragile `isinstance` checks
+        # across import paths and keeps the detection simple for automated
+        # consumers.
+        if not getattr(self, 'widgets', None):
+            return None
+
+        preferred = []
+        fallback = []
+        # Keywords that indicate an ENTER/CONFIRM-like action. Tuned for UX.
+        preferred_keys = ['continue', 'confirm', 'embark', 'next', 'revive', 'apply', 'play all', 'load', 'yes']
+
+        for w in self.widgets:
+            # Only consider widgets that declare a high-level action key.
+            if not hasattr(w, 'action_name'):
+                continue
+            # Respect explicit disabled state; default to enabled when missing.
+            if not getattr(w, 'is_enabled', True):
+                continue
+            action = getattr(w, 'action_name', None)
+            if not action:
+                continue
+
+            # Some widgets use `label`, others `text`. Use either for keyword matching.
+            lab_attr = getattr(w, 'label', None) or getattr(w, 'text', None) or ''
+            lab = str(lab_attr).strip()
+
+            # Fallback candidate in case no preferred labels are present.
+            fallback.append((lab, action, w))
+
+            # If the visible text contains a preferred keyword, mark it preferred.
+            if any(k in lab.lower() for k in preferred_keys):
+                preferred.append((lab, action, w))
+
+        # Prefer semantic choices but fall back to any actionable widget.
+        pick_list = preferred if preferred else fallback
+        if not pick_list:
+            return None
+        # If this looks like an exit/confirmation dialog, prefer 'No'/cancel.
+        title = getattr(self, 'title', '') or ''
+        tl = str(title).lower()
+        if any(k in tl for k in ('confirm', 'confirmation', 'are you sure', 'exit')):
+            no_candidates = [p for p in pick_list if 'no' in p[0].lower() or 'cancel' in p[0].lower() or 'return' in str(p[1]).lower()]
+            if no_candidates:
+                pick_list = no_candidates
+            else:
+                not_yes = [p for p in pick_list if 'yes' not in p[0].lower()]
+                if not_yes:
+                    pick_list = not_yes
+
+        # Deterministic selection: shortest label first (reduces ambiguity),
+        # then lexicographic to make selection stable across runs.
+        pick_list.sort(key=lambda t: (len(t[0]), t[0]))
+        _, action, _ = pick_list[0]
+        return action
+
+    def _auto_keypress(self):
+        # Not used directly (core.engine loop reads get_keypress_nb); instead we
+        # override run() to bypass key loop entirely.
+        return None
+
+    def run(self) -> str:
+        # If autopilot is disabled, use normal BaseScreen.run() from core.engine.
+        if not getattr(self, 'autopilot_enabled', False):
+            return super().run()
+
+        # For autopilot mode, repeatedly: setup_ui, then apply auto actions until state changes.
+        # To avoid infinite loops in menus that require numeric typing, we also support
+        # TextBox autofill for NameEntry.
+        self._update_layout_from_window()
+        self.setup_ui()
+
+        # Auto-fill common TextBoxes.
+        for w in getattr(self, 'widgets', []):
+            if isinstance(w, TextBox):
+                if 'name' in str(getattr(w, 'label', '')).lower() and hasattr(self, 'state'):
+                    w.value = str(getattr(self.state, 'player_name', '') or 'Gaudenz')[: getattr(w, 'max_len', 16)]
+
+        # Try to advance using auto-selected action.
+        # If no Button action exists, fall back to using focus cycling by simulating NEXT.
+        for _ in range(50):
+            action = self._auto_choose_action()
+            if action:
+                # Throttle autopilot actions to avoid overwhelming the UI loop
+                # (prevents racing where screens immediately accept/confirm).
+                if AUTO_PILOT:
+                    time.sleep(AUTO_PILOT_DELAY)
+                return action
+
+        # If we cannot decide an action, do what the user would: exit.
+        if AUTO_PILOT:
+            time.sleep(AUTO_PILOT_DELAY)
+        return "EXIT"
+
+
 # --- Specific Screen Implementations ---
 
-class MainMenuScreen(BaseScreen):
+class MainMenuScreen(AutoPilotMixin, BaseScreen):
     """The central hub of the application."""
     def __init__(self, window, state):
         super().__init__(window)
@@ -60,23 +222,20 @@ class MainMenuScreen(BaseScreen):
         # Center coordinates based on content area
         cx = self.ox + (self.window.width // 2)
         cy = self.oy + (self.window.height // 2)
-        
+
         self.widgets = [
             Label(cx - 20, cy - 9, "┌──────────────────────────────────────┐", FG_BORDER),
             Label(cx - 20, cy - 8, "│          CURSED DOMINATION           │", FG_TITLE),
             Label(cx - 20, cy - 7, "└──────────────────────────────────────┘", FG_BORDER),
             Label(cx - 6,  cy - 6, "v1.67", FG_BORDER),
-            
+
             Button(cx - 5, cy - 3, "New Game", "SCREEN_NEW_GAME"),
             Button(cx - 5, cy - 1, "Load Game", "SCREEN_LOAD_GAME"),
             Button(cx - 5, cy + 1, "Quit", "EXIT")
-
-            # Button(cx - 5, cy + 1, "Settings", "SCREEN_SETTINGS"),
-            # Button(cx - 5, cy + 3, "Scenes", "SCENES_MENU"),
-            # Button(cx - 3, cy + 5, "Quit", "EXIT")
         ]
 
-class LoadGameScreen(BaseScreen):
+
+class LoadGameScreen(AutoPilotMixin, BaseScreen):
     """Dedicated class to handle saved game slots and loading logic."""
     def __init__(self, window, state):
         super().__init__(window)
@@ -89,7 +248,7 @@ class LoadGameScreen(BaseScreen):
 
         has_save = save_exists()
         save_label = "Slot 1: Continue Journey" if has_save else "Slot 1: [ No Save Found ]"
-        
+
         load_button = Button(cx - 20, cy - 5, save_label, "LOAD_SAVE", is_enabled=has_save)
         load_button.is_focusable = has_save
 
@@ -112,7 +271,8 @@ class LoadGameScreen(BaseScreen):
                 return gameplay_state_for_stage(self.state.current_stage)
         return result
 
-class SettingsScreen(BaseScreen):
+
+class SettingsScreen(AutoPilotMixin, BaseScreen):
     """Dedicated class for handling configuration changes."""
     def setup_ui(self):
         self.title = "Game Settings"
@@ -121,16 +281,17 @@ class SettingsScreen(BaseScreen):
 
         self.widgets = [
             Label(cx - 6, cy - 10, "Configuration", FG_TITLE),
-            
+
             TextBox(cx - 20, cy - 6, "Master Volume (0-100):", 25, 4),
             TextBox(cx - 20, cy - 4, "Difficulty (1-5):", 25, 2),
             TextBox(cx - 20, cy - 2, "Auto-Save (Y/N):", 25, 2),
-            
+
             Button(cx - 25, cy + 5, "Apply Changes", "SCREEN_MAIN_MENU"),
             Button(cx + 5,  cy + 5, "Discard", "SCREEN_MAIN_MENU")
         ]
 
-class NameEntryScreen(BaseScreen):
+
+class NameEntryScreen(AutoPilotMixin, BaseScreen):
     """Step 1 of New Game: Enter Player Name."""
     def __init__(self, window, state):
         super().__init__(window)
@@ -150,10 +311,10 @@ class NameEntryScreen(BaseScreen):
             Label(cx - 10, cy - 10, "┌────────────────────┐", FG_BORDER),
             Label(cx - 10, cy - 9,  "│   NAME ENTRY       │", FG_TITLE),
             Label(cx - 10, cy - 8,  "└────────────────────┘", FG_BORDER),
-            
+
             Label(cx - 6, cy - 5, "WHO ARE YOU?", FG_TITLE),
             Label(cx - 28, cy - 3, "A new soul enters the void. Alphanumeric only (Max 16).", FG_DIM),
-            
+
             self.name_input,
             self.continue_btn,
             Button(cx + 4,  cy + 4, "Back", "SCREEN_MAIN_MENU")
@@ -176,6 +337,7 @@ class NameEntryScreen(BaseScreen):
             self.state.player_name = name
             return "CHARACTER_SELECTION"
         return result
+
 
 # --- Skill Data for Redesign ---
 SKILL_DATA = [
@@ -232,13 +394,14 @@ SKILL_DATA = [
     }
 ]
 
-class SkillSelectionScreen(BaseScreen):
+
+class SkillSelectionScreen(AutoPilotMixin, BaseScreen):
     """Redesigned Step 2 of New Game: Choose Skill Set."""
     def __init__(self, window, state):
         super().__init__(window)
         self.state = state
         self.selected_index = 0
-        self.sort_column = -1 # -1 for row labels, 0-2 for characters
+        self.sort_column = -1
         self.sort_descending = False
 
     def setup_ui(self):
@@ -246,86 +409,65 @@ class SkillSelectionScreen(BaseScreen):
         cx = self.ox + (self.window.width // 2)
         cy = self.oy + (self.window.height // 2)
 
-        # Heading
         self.widgets = [
             Label(cx - 15, cy - 13, "CHOOSE YOUR SKILL SET", FG_TITLE),
         ]
 
-        # Cards
         card_width = 32
         card_spacing = 4
         start_x = cx - (3 * card_width + 2 * card_spacing) // 2
 
-        # Portraits & Cards
         for i, data in enumerate(SKILL_DATA):
             x = start_x + i * (card_width + card_spacing)
             y = cy - 11
-            
-            # Cursed Card Border
+
             border_color = FG_TITLE if self.selected_index == i else FG_BORDER
             self.widgets.append(Label(x, y,     "┏" + "━"*(card_width-2) + "┓", border_color))
             for h in range(1, 8):
                 self.widgets.append(Label(x, y + h, "┃" + " "*(card_width-2) + "┃", border_color))
             self.widgets.append(Label(x, y + 8, "┗" + "━"*(card_width-2) + "┛", border_color))
 
-            # Portrait
             portrait_color = FG_WHITE if self.selected_index == i else FG_DIM
             for row_idx, row in enumerate(data["portrait"]):
                 self.widgets.append(Label(x + (card_width - len(row))//2, y + 1 + row_idx, row, portrait_color))
-            
-            # Title & Summary
+
             self.widgets.append(Label(x + (card_width - len(data['name']))//2, y + 5, f"[{i+1}] {data['name']}", FG_TITLE if self.selected_index == i else FG_LABEL))
             self.widgets.append(Label(x + (card_width - len(data['summary']))//2, y + 6, data['summary'], FG_DIM))
-            
-            # Select Indicator (Now a Label, not a focusable Button)
+
             indicator_label = f" {data['name'].split()[0].upper()} " if self.selected_index == i else f" PRESS [{i+1}] "
             self.widgets.append(Label(x + (card_width - len(indicator_label))//2, y + 7, indicator_label, FG_TITLE if self.selected_index == i else FG_DIM))
 
-        # Comparison Table (Redesigned 2-Column Format)
         table_y = cy + 1
         table_x = cx - 50
-        
+
         selected_data = SKILL_DATA[self.selected_index]
         self.widgets.append(Label(table_x, table_y - 2, f"── {selected_data['name'].upper()}: TECHNIQUE DETAILS ──", FG_TITLE))
-        
-        # Table Headers
         self.widgets.append(Label(table_x,      table_y, "Skill/Technique   ", FG_LABEL))
         self.widgets.append(Label(table_x + 25, table_y, "Description", FG_LABEL))
-        
-        # Horizontal line
         self.widgets.append(Label(table_x, table_y + 1, "─" * 100, FG_BORDER))
 
-        # Table Rows
         row_labels = ["1st Skill", "2nd Skill", "3rd Skill (SS)", "Domain"]
         techniques = selected_data["techniques"]
 
         for i, row_label in enumerate(row_labels):
             tech_str = techniques[i]
-            # Split "Name – Description"
             if " – " in tech_str:
                 tech_name, tech_desc = tech_str.split(" – ", 1)
             else:
                 tech_name, tech_desc = tech_str, ""
 
-            # Label (Column 1)
             self.widgets.append(Label(table_x, table_y + 2 + i*2, f"{row_label:<15}", FG_LABEL))
-            
-            # Technique Name + Description (Column 2)
-            # We combine them or show them separately. User wants "Skill/Technique | Description"
             self.widgets.append(Label(table_x + 25, table_y + 2 + i*2, f"{tech_name}", FG_TITLE))
             self.widgets.append(Label(table_x + 55, table_y + 2 + i*2, f"» {tech_desc}", FG_WHITE))
-            
-            # Separator
+
             if i < 3:
                 self.widgets.append(Label(table_x, table_y + 3 + i*2, "─" * 100, FG_BORDER))
 
-        # Bottom Actions
         self.confirm_btn = Button(cx - 15, cy + 12, "Confirm [Enter]", "EMBARK")
         self.widgets.append(self.confirm_btn)
         self.widgets.append(Button(cx + 10,  cy + 12, "Back", "SCREEN_NEW_GAME"))
 
     def handle_key(self, key: str):
-        # Numeric keys 1, 2, 3 are now the EXCLUSIVE way to select
         if key in ("1", "2", "3"):
             self.selected_index = int(key) - 1
             self.setup_ui()
@@ -333,18 +475,18 @@ class SkillSelectionScreen(BaseScreen):
 
         result = super().handle_key(key)
         if result == "EMBARK":
-            # Force set the player class based on the CURRENT selected_index
             selected_key = SKILL_DATA[self.selected_index]["id"]
             self.state.player = Player(self.state.player_name, selected_key)
             return "SCENE_01_INTRO"
         return result
 
-class ConfirmExitScreen(BaseScreen):
+
+class ConfirmExitScreen(AutoPilotMixin, BaseScreen):
     """Dedicated screen for exit confirmation."""
-    def __init__(self, window: WindowManager):
+    def __init__(self, window):
         super().__init__(window)
         self.previous_state = "SCREEN_MAIN_MENU"
-        self.state = None # Will be set by manager
+        self.state = None
 
     def setup_ui(self):
         self.title = "Confirmation"
@@ -354,7 +496,7 @@ class ConfirmExitScreen(BaseScreen):
         self.widgets = [
             Label(cx - 15, cy - 4, "Are you sure you want to exit?", FG_TITLE),
             Button(cx - 12, cy + 1, "Yes", "EXIT"),
-            Button(cx + 2,  cy + 1, "No", "RETURN_TO_PREV")
+            Button(cx + 2, cy + 1, "No", "RETURN_TO_PREV")
         ]
 
     def handle_key(self, key: str):
@@ -369,7 +511,7 @@ class ConfirmExitScreen(BaseScreen):
         return result
 
 
-class ScenesMenuScreen(BaseScreen):
+class ScenesMenuScreen(AutoPilotMixin, BaseScreen):
     """Menu to pick individual scenes or play them all in sequence."""
     def __init__(self, window, state):
         super().__init__(window)
@@ -398,11 +540,8 @@ class ScenesMenuScreen(BaseScreen):
 
         self.widgets.append(Button(cx - 6, cy + 9, "Return", "SCREEN_MAIN_MENU"))
 
-# ==========================================
-# MAIN APPLICATION LOOP
-# ==========================================
 
-class GameOverScreen(BaseScreen):
+class GameOverScreen(AutoPilotMixin, BaseScreen):
     """Reverse Curse Technique - Checkpoint System."""
     def __init__(self, window, state):
         super().__init__(window)
@@ -413,7 +552,6 @@ class GameOverScreen(BaseScreen):
         cx = self.ox + (self.window.width // 2)
         cy = self.oy + (self.window.height // 2)
 
-        # HUD glitch uses player instability when available (canonical death flow updates Player).
         pi = self.state.player.mental_instability if self.state.player else self.state.instability
         self.state.instability = pi
 
@@ -431,10 +569,10 @@ class GameOverScreen(BaseScreen):
             Label(cx - 20, cy - 8, "┌──────────────────────────────────────┐", FG_TITLE),
             Label(cx - 20, cy - 7, "│           GAME OVER                  │", FG_TITLE),
             Label(cx - 20, cy - 6, "└──────────────────────────────────────┘", FG_TITLE),
-            
+
             Label(cx - len(msg)//2, cy - 2, msg, FG_WHITE if pi < 3 else FG_TITLE),
             Label(cx - 15, cy + 1, f"INSTABILITY LEVEL: {pi}/5", FG_TITLE),
-            
+
             Label(cx - 15, cy + 4, "Want to start again?", FG_WHITE),
             Button(cx - 15, cy + 6, "Revive (Checkpoint)", "REVIVE"),
             Button(cx + 5,  cy + 6, "Give Up", "SCREEN_MAIN_MENU")
@@ -451,14 +589,18 @@ class GameOverScreen(BaseScreen):
             return gameplay_state_for_stage(self.state.checkpoint_stage)
         return result
 
+
 def main():
+    import os as _os
+    global AUTO_PILOT
+    # Re-evaluate args at runtime: only enable autopilot with the CLI flag.
+    AUTO_PILOT = '-copilot' in sys.argv
+
     window = WindowManager()
     window.setup()
-    
-    # Initialize state locally
+
     state = GameState()
-    
-    # Initialize our screen objects and pass state to those that need it
+
     screens = {
         "SCREEN_MAIN_MENU": MainMenuScreen(window, state),
         "SCREEN_LOAD_GAME": LoadGameScreen(window, state),
@@ -469,97 +611,106 @@ def main():
         "SCREEN_GAME_OVER": GameOverScreen(window, state),
         "SCENES_MENU": ScenesMenuScreen(window, state)
     }
-    # Pass state to ConfirmExitScreen as well
+
     screens["SCREEN_CONFIRM_EXIT"].state = state
 
-    # Register story scenes and gameplay anchors from the canonical campaign registry.
     screens.update(build_campaign_screens(window, state))
 
     gameplay_action_labels = ["1.PUNCH", "2.SKILL", "3.DOMAIN", "4.ITEM"]
     for key in GAMEPLAY_SCREEN_KEYS:
         screen = screens.get(key)
         if screen:
-            # preserve existing behavior but expose nicer labels for rendering logic
             try:
                 screen.action_labels = gameplay_action_labels
-                # if the scene uses `actions`, update it too for backwards compatibility
                 if hasattr(screen, 'actions'):
                     screen.actions = ["PUNCH", "SKILL", "DOMAIN", "ITEM"]
             except Exception as exc:
                 print(f"[ERROR] Failed to set gameplay action labels for {key}: {exc}", file=sys.stderr, flush=True)
 
+    # Enable autopilot only for non-gameplay UI screens in this file.
+    # Gameplay screens are handled by their own key loops; we do not interfere.
+    for k in list(screens.keys()):
+        if k in {
+            "SCREEN_MAIN_MENU",
+            "SCREEN_LOAD_GAME",
+            "SCREEN_SETTINGS",
+            "SCREEN_NEW_GAME",
+            "CHARACTER_SELECTION",
+            "SCREEN_CONFIRM_EXIT",
+            "SCREEN_GAME_OVER",
+            "SCENES_MENU",
+        }:
+            if AUTO_PILOT:
+                setattr(screens[k], 'autopilot_enabled', True)
+
     try:
         current_state = "SCREEN_MAIN_MENU"
-
-        # Shell/UI screens must stay stable (gameplay instability is for gameplay atmospherics only).
         set_glitch_level(0)
-        
-        # Application State Machine
+
         while current_state != "EXIT":
-            # Keep shell/UI navigation layers stable. Gameplay screens re-enable glitches themselves.
-            if current_state in ("SCREEN_MAIN_MENU", "SCREEN_LOAD_GAME", "SCREEN_SETTINGS", "SCENES_MENU", "SCREEN_NEW_GAME", "CHARACTER_SELECTION", "SCREEN_CONFIRM_EXIT"):
+            if current_state in {
+                "SCREEN_MAIN_MENU",
+                "SCREEN_LOAD_GAME",
+                "SCREEN_SETTINGS",
+                "SCENES_MENU",
+                "SCREEN_NEW_GAME",
+                "CHARACTER_SELECTION",
+                "SCREEN_CONFIRM_EXIT",
+            }:
                 set_glitch_level(0)
-            # Clear any leftover output before running screen
+
             sys.stdout.write(f"{ESC}2J{ESC}H")
             sys.stdout.flush()
-            
-            # Retrieve the appropriate screen class and execute its run loop
+
             active_screen = screens.get(current_state)
-            
-            if active_screen:
-                # The run() method blocks until the user triggers a state change
-                next_state = active_screen.run()
-                
-                # Emergency Force Exit (bypass confirmation)
-                if next_state == "EXIT_NOW":
-                    current_state = "EXIT"
-                    continue
+            if not active_screen:
+                current_state = "EXIT"
+                continue
 
-                # Robust Exit Handling: Any EXIT or ESC attempt (except from the confirmation screen itself)
-                # triggers the confirmation dialog.
-                if next_state == "EXIT" and current_state != "SCREEN_CONFIRM_EXIT":
-                    screens["SCREEN_CONFIRM_EXIT"].previous_state = current_state
-                    current_state = "SCREEN_CONFIRM_EXIT"
-                    continue # Skip to next loop iteration to show the confirmation screen
+            next_state = active_screen.run()
 
-                if next_state == "PLAY_ALL_SCENES":
-                    abort_sequence = False
-                    for sname in STORY_SCENE_SEQUENCE:
-                        sscreen = screens.get(sname)
-                        if not sscreen:
-                            continue
-                        while True:
-                            result = sscreen.run()
-                            # Emergency Force Exit (bypass confirmation)
-                            if result == "EXIT_NOW":
+            if next_state == "EXIT_NOW":
+                current_state = "EXIT"
+                continue
+
+            if next_state == "EXIT" and current_state != "SCREEN_CONFIRM_EXIT":
+                screens["SCREEN_CONFIRM_EXIT"].previous_state = current_state
+                current_state = "SCREEN_CONFIRM_EXIT"
+                continue
+
+            if next_state == "PLAY_ALL_SCENES":
+                abort_sequence = False
+                for sname in STORY_SCENE_SEQUENCE:
+                    sscreen = screens.get(sname)
+                    if not sscreen:
+                        continue
+                    while True:
+                        result = sscreen.run()
+                        if result == "EXIT_NOW":
+                            current_state = "EXIT"
+                            abort_sequence = True
+                            break
+                        if result == "EXIT":
+                            screens["SCREEN_CONFIRM_EXIT"].previous_state = sname
+                            confirm_result = screens["SCREEN_CONFIRM_EXIT"].run()
+                            if confirm_result == "EXIT":
                                 current_state = "EXIT"
                                 abort_sequence = True
                                 break
-                            # If ESC or EXIT triggered during a scene in the sequence.
-                            # Choosing "No" replays the same scene instead of skipping it.
-                            if result == "EXIT":
-                                screens["SCREEN_CONFIRM_EXIT"].previous_state = sname
-                                confirm_result = screens["SCREEN_CONFIRM_EXIT"].run()
-                                if confirm_result == "EXIT":
-                                    current_state = "EXIT"
-                                    abort_sequence = True
-                                    break
-                                continue
-                            break
-                        if abort_sequence:
-                            break
-                    else:
-                        current_state = "SCREEN_MAIN_MENU"
+                            continue
+                        break
+                    if abort_sequence:
+                        break
                 else:
-                    current_state = next_state
+                    current_state = "SCREEN_MAIN_MENU"
             else:
-                # Fallback if a route is missing
-                current_state = "EXIT"
+                current_state = next_state
 
     finally:
-        # Ensures terminal isn't broken if the user quits or the app crashes
         window.teardown()
         print("Safely exited to terminal.", flush=True)
 
+
 if __name__ == "__main__":
     main()
+

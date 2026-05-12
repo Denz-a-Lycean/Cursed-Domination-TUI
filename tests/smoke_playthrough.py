@@ -89,7 +89,11 @@ class AutoPresenter:
         while True:
             elapsed = time.monotonic() - start
             remaining = max(0.0, duration_seconds - elapsed)
-            self._log(f"DOMAIN TICK: {remaining:0.1f}s remaining")
+            # Log ticks at ~3 second steps to match presenter timer display behavior.
+            remaining_i = int(remaining + 0.999) if remaining > 0 else 0
+            remaining_i = (remaining_i // 3) * 3
+            self._log(f"DOMAIN TICK: {remaining_i:0.1f}s remaining")
+
             if remaining <= 0:
                 break
             time.sleep(min(interval, 1.0))

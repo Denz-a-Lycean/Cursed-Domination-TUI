@@ -944,10 +944,18 @@ class AnsiGamePresenter:
             buf += f"{ESC}{self.oy + row};{self.ox + 2}H{FG_DIM}{_clamp(footer, inner_w)}{RESET}"
 
         self._write_full(buf)
+        # In autopilot/debug mode we should not block waiting for Enter — allow
+        # automated agents to continue capturing program output immediately.
+        if '-copilot' in sys.argv:
+            return
         self.stop(None)
 
     def stop(self, message):
         """Wait for Enter; `message` None = silent (footer already on screen)."""
+        # If autopilot is active, return immediately (no Enter required).
+        if '-copilot' in sys.argv:
+            return
+
         prompt_row = self.window.offset_y + self.window.height - 2
         if message:
             sys.stdout.write(
@@ -1030,6 +1038,54 @@ class AnsiGamePresenter:
         redraw_interval = 0.11  # subtle animation while waiting
         # Cursor selection for Pokémon-like 2x2 command box (only when <=4 options).
         selected = 0
+
+        # Autopilot hook: when running under `-copilot`, return a deterministic
+        # menu choice immediately so automated agents can progress through
+        # gameplay without manual input. The heuristic here is intentionally
+        # simple and conservative: prefer attack/proceeding options that allow
+        # the battle flow to continue. This can be extended with more context
+        # (parsed HUD via `status_callback`) for smarter choices.
+        if '-copilot' in sys.argv:
+            tl = (title or "").lower()
+            parsed = None
+            try:
+                raw_status = status_callback() if status_callback and callable(status_callback) else None
+                parsed = _parse_combat_status(list(raw_status or [])) if raw_status else None
+            except Exception:
+                parsed = None
+
+            # Heuristics (ordered):
+            # - "Your Turn" -> choose the primary action (Attack, index 0)
+            # - "Domain Expansion" -> prefer Attack (index 1) when present
+            # - "Attack Menu" -> choose first skill (index 0)
+            # - Fallback -> choose first option (index 0)
+            choice_idx = 0
+            if "your turn" in tl:
+                choice_idx = 0
+            elif "domain expansion" in tl:
+                choice_idx = 1 if len(options) > 1 else 0
+            elif "attack menu" in tl:
+                choice_idx = 0
+            else:
+                choice_idx = 0
+
+            # Validate and return index. Throttle slightly so the UI can render
+            # and avoid rapid-fire input that causes the program to jump/exit.
+            try:
+                idx = validate_menu_index(choice_idx, options)
+            except Exception:
+                idx = 0
+            try:
+                delay = float(os.environ.get('COPILOT_DELAY', '0.25'))
+            except Exception:
+                delay = 0.25
+            time.sleep(delay)
+            try:
+                # Keep a short trace in the presenter's log buffer for debugging.
+                self._push_log(f"[autopilot] menu '{title}' -> option {idx}")
+            except Exception:
+                pass
+            return idx
 
         while True:
             now = time.monotonic()
@@ -1409,7 +1465,11 @@ class AnsiGamePresenter:
                 logged = True
 
             remaining = max(0.0, duration_seconds - elapsed)
+            # UX: timer display updates in 3-second steps only.
             remaining_i = int(math.ceil(remaining)) if remaining > 0 else 0
+            remaining_i = (remaining_i // 3) * 3
+            remaining_i = max(0, remaining_i)
+
 
             # Deterministic fill mapping using integer seconds -> avoids jitter
             if total_secs_i > 0:
