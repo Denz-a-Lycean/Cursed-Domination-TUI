@@ -3,7 +3,6 @@ import sys
 import time
 import math
 import random
-import msvcrt
 
 # --- ANSI Constants ---
 ESC = "\033["
@@ -46,11 +45,40 @@ def draw_eye(cx, cy, frame):
     for i, line in enumerate(eye_frames):
         sys.stdout.write(f"{ESC}{cy + i - 1};{cx - 5}H{color}{line}")
 
+
+def render_domain_frame(frame: int, width: int, height: int) -> list[str]:
+    """Return a compact Eye overlay for domain animations.
+
+    Non-blocking: returns ANSI-colored lines representing the central eye.
+    """
+    blink = (frame % 20) < 2
+    if not blink:
+        eye_frames = [
+            r"   .---.   ",
+            r"  / (O) \  ",
+            r"   '---'   ",
+        ]
+    else:
+        eye_frames = [
+            r"   .---.   ",
+            r"  / --- \  ",
+            r"   '---'   ",
+        ]
+
+    # Return with color; presenter will position/pad as needed.
+    return [f"{FG_CYAN}{ln}{RESET}" for ln in eye_frames]
+
 def main():
     os.system("")
     cols, lines = os.get_terminal_size()
     cx, cy = cols // 2, lines // 2
-    
+    # Import msvcrt lazily so this module can be loaded on non-Windows hosts
+    try:
+        import msvcrt as _msv
+        msvcrt = _msv
+    except Exception:
+        msvcrt = None
+
     clones = [Clone(random.uniform(0, 2*math.pi), random.randint(10, 30), 0.5) for _ in range(12)]
     
     sys.stdout.write(f"{HIDE_CURSOR}{CLEAR}")
@@ -65,8 +93,9 @@ def main():
     try:
         frame_count = 0
         while True:
-            if msvcrt.kbhit():
-                if msvcrt.getch().lower() == b'q': break
+            if msvcrt and msvcrt.kbhit():
+                if msvcrt.getch().lower() == b'q':
+                    break
 
             sys.stdout.write(HOME)
             

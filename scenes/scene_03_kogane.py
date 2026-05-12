@@ -61,7 +61,7 @@ scene_data = {
     "dialogues": [
         {"speaker": "Kogane", "text": "Ding-dong, ding-dong. I am Kogane, your personal assistant from here on out.", "speed": 0.03, "pause_after": 0.6, "color": "label"},
         {"speaker": "You", "text": "...What?", "speed": 0.02},
-        {"speaker": "Kogane", "text": "Ding-dong, ding-dong. Yep, assigned to you. I guide you, update you, and try to keep you alive.", "speed": 0.03, "pause_after": 0.5, "color": "label"},
+        {"speaker": "Kogane", "text": "Ding-dong, bading-dong. Yep, assigned to you. I guide you, update you, and try to keep you alive.", "speed": 0.03, "pause_after": 0.5, "color": "label"},
         {"speaker": "You", "text": "You just popped out of nowhere and started talking like you own the place.", "speed": 0.02},
         {"speaker": "Kogane", "text": "Ding-dong, ding-dong. Not owning, just doing my job. You're a sorcerer now.", "speed": 0.03, "pause_after": 0.6, "color": "label"}
     ],

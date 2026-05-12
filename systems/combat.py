@@ -90,7 +90,15 @@ class CombatSystem:
             )
             return
 
-        self.presenter.screen(title, lines, status_lines=self._status_lines())
+        # Fallback: prefer a non-blocking loading-style inline view so the
+        # battle HUD remains visible instead of swapping to a full screen.
+        joined = " ".join(lines[:2]) if lines else ""
+        self.presenter.loading(
+            title,
+            joined or "",
+            status_lines=self._status_lines(),
+            seconds=max(0.35, float(seconds) * 0.8),
+        )
 
     def _play_domain_timer(
         self,

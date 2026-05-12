@@ -6,6 +6,9 @@ import re
 import sys
 import textwrap
 import time
+import os
+import types
+import math
 
 from core.engine import (
     BG_MAIN,
@@ -509,35 +512,35 @@ def _battle_art(player_class: str, enemy_name: str = "", enemy_type: str = "", s
 
     if player_class == "Dancer":
         player = [
-            r"       ▄█▀▀▀█▄        ",
-            r"     ▄█▀  _  ▀█▄      ",
-            r"    █  ▐█▌▐█▌  █     ",
-            r"    █    ^    █     ",
-            r"     ▀█▄▄█▄▄█▀      ",
-            r"        /|\         ",
-            r"       / | \        ",
+            r"      ▄█▀▀▀█▄         ",
+            r"    ▄█▀  _  ▀█▄       ",
+            r"    █ ▐█▌ ▐█▌ █       ",
+            r"    █    ^    █       ",
+            r"     ▀█▄▄█▄▄█▀        ",
+            r"        /|\           ",
+            r"       / | \          ",
         ]
         color = Colors.MAGENTA
     elif player_class == "Bouncer":
         player = [
-            r"       ▄█▀▀▀█▄        ",
-            r"     ▄█  ( )  █▄     ",
-            r"    █   |_|   █     ",
-            r"    █  /___\  █     ",
+            r"      ▄█▀▀▀█▄        ",
+            r"    ▄█  ( )  █▄      ",
+            r"    █   |_|   █      ",
+            r"    █  /___\  █      ",
             r"     ▀█▄▄▄▄▄█▀       ",
             r"        / \          ",
-            r"       _/___\_       ",
+            r"      _/___\_        ",
         ]
         color = Colors.BRIGHT_YELLOW
     else:
         player = [
-            r"       ▄█▀▀▀█▄        ",
-            r"     ▄█  (O)  █▄     ",
-            r"    █   /|\   █     ",
-            r"    █  _/ \_  █     ",
-            r"     ▀█▄▄█▄▄█▀       ",
-            r"        / \          ",
-            r"       /___\         ",
+            r"      ▄█▀▀▀█▄         ",
+            r"    ▄█  (O)  █▄       ",
+            r"    █   /|\   █       ",
+            r"    █  _/ \_  █       ",
+            r"     ▀█▄▄█▄▄█▀        ",
+            r"        / \           ",
+            r"       /___\          ",
         ]
         color = Colors.CYAN
 
@@ -786,6 +789,8 @@ class AnsiGamePresenter:
         self.window = window
         self.colors = Colors
         self._log_buffer: list[str] = []
+        # cached asset modules for domain overlays
+        self._asset_modules: dict[str, object] = {}
 
     def _push_log(self, text: str | None):
         if not text:
@@ -804,6 +809,56 @@ class AnsiGamePresenter:
         while len(logs) < n:
             logs.insert(0, "")
         return logs
+
+    def _asset_module_filename(self, technique_key: str) -> str | None:
+        mapping = {
+            "Dancer": "dance.py",
+            "Bouncer": "bounce.py",
+            "Seeker": "banlag.py",
+        }
+        return mapping.get(technique_key)
+
+    def _load_asset_module(self, technique_key: str):
+        """Load and cache the asset module for a technique key, if present."""
+        if technique_key in self._asset_modules:
+            return self._asset_modules[technique_key]
+
+        fname = self._asset_module_filename(technique_key)
+        if not fname:
+            return None
+
+        base = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "assets", "ascii_arts"))
+        path = os.path.join(base, fname)
+        if not os.path.exists(path):
+            return None
+
+        try:
+            # Read and execute the asset file in an isolated module namespace.
+            # This avoids using importlib utilities while staying within the
+            # Python standard library (no external packages).
+            with open(path, "r", encoding="utf-8") as f:
+                src = f.read()
+            module = types.ModuleType(f"domain_asset_{technique_key.lower()}")
+            module.__file__ = path
+            exec(compile(src, path, "exec"), module.__dict__)
+            self._asset_modules[technique_key] = module
+            return module
+        except Exception:
+            return None
+
+    def _render_asset_overlay(self, technique_key: str, frame: int, width: int, height: int = 7) -> list[str] | None:
+        """Return a list of ANSI lines from the asset module or None."""
+        mod = self._load_asset_module(technique_key)
+        if not mod:
+            return None
+        render_fn = getattr(mod, "render_domain_frame", None)
+        if not callable(render_fn):
+            return None
+        try:
+            lines = render_fn(frame, width, height)
+            return list(lines) if lines else None
+        except Exception:
+            return None
 
     def _sync_offsets(self):
         self.window.update_offsets()
@@ -1240,6 +1295,14 @@ class AnsiGamePresenter:
                 aura_row = self.oy + 11
                 aura_line = _center_ansi_line(aura, panel_w)
                 buf += f"{ESC}{aura_row};{px}H{aura_line}"
+                # Attempt to overlay technique-specific ASCII art
+                asset_lines = self._render_asset_overlay(technique_key, i, inner_w)
+                if asset_lines:
+                    overlay_w = max((_visible_len(l) for l in asset_lines), default=0)
+                    overlay_x = self.ox + (self.window.width - overlay_w) // 2
+                    overlay_y = self.oy + 8
+                    for idx, ln in enumerate(asset_lines):
+                        buf += f"{ESC}{overlay_y + idx};{overlay_x}H{_pad_ansi_line(_clamp(ln, overlay_w), overlay_w)}"
             else:
                 buf += f"{ESC}{self.oy + 8};{self.ox + 2}H{color_text(domain_name, Colors.BRIGHT_RED)}{RESET}"
                 buf += f"{ESC}{self.oy + 10};{self.ox + 2}H{_clamp(msg, inner_w)}{RESET}"
@@ -1285,6 +1348,60 @@ class AnsiGamePresenter:
             "Cursed energy drains without mercy...",
         ]
 
+        # Deterministic integer mapping for timer/barrier
+        total_secs_i = int(math.ceil(duration_seconds))
+        BAR_WIDTH = 24
+
+        # Snapshot initial parse and compute overlay geometry once to avoid
+        # per-tick re-centering or full-panel rebuilds.
+        if status_data is not None:
+            st0 = status_data() if callable(status_data) else status_data
+        else:
+            st0 = status_lines() if callable(status_lines) else status_lines
+
+        parsed = _parse_combat_status(list(st0 or [])) if st0 else None
+
+        # compute offsets & overlay geometry once
+        self._sync_offsets()
+        inner_w = self.window.width - 4
+
+        if parsed:
+            # Precompute centered outer/inner box positions based on current window.
+            outer_w = min(int(inner_w - 4), 60)
+            outer_w = max(50, outer_w)
+            outer_y = self.oy + 7
+            outer_x = self.ox + (self.window.width - outer_w) // 2
+
+            inner_y = outer_y + 2
+            inner_w_box = max(28, outer_w - 10)
+            inner_x = outer_x + (outer_w - inner_w_box) // 2
+
+            # Render the stable base once (no per-tick full redraw).
+            base_buf = self._battle_panel_buffer(
+                title=title,
+                parsed=parsed,
+                message="",
+                footer="Domain active.",
+                side_lines=self._last_logs(3),
+                side_title="DOMAIN",
+                frame=0,
+            )
+            self._write_full(base_buf)
+        else:
+            # Fallback layout when HUD parsing is unavailable.
+            overlay_w = min(inner_w - 4, 52)
+            outer_w = overlay_w
+            outer_y = self.oy + 7
+            outer_x = self.ox + (self.window.width - outer_w) // 2
+
+            inner_y = outer_y + 2
+            inner_w_box = max(26, outer_w - 10)
+            inner_x = self.ox + (self.window.width - inner_w_box) // 2
+
+            base_buf = self._frame_buffer(title)
+            self._write_full(base_buf)
+
+        # Main overlay-only loop
         while True:
             elapsed = time.monotonic() - start
             if not logged:
@@ -1292,111 +1409,46 @@ class AnsiGamePresenter:
                 logged = True
 
             remaining = max(0.0, duration_seconds - elapsed)
-            inner_w = self.window.width - 4
-            px = self.ox + 2
+            remaining_i = int(math.ceil(remaining)) if remaining > 0 else 0
 
-            if status_data is not None:
-                st = status_data() if callable(status_data) else status_data
+            # Deterministic fill mapping using integer seconds -> avoids jitter
+            if total_secs_i > 0:
+                fill = (remaining_i * BAR_WIDTH + total_secs_i - 1) // total_secs_i
             else:
-                st = status_lines() if callable(status_lines) else status_lines
+                fill = 0
+            fill = max(0, min(BAR_WIDTH, int(fill)))
 
-            parsed = _parse_combat_status(list(st or [])) if st else None
+            g = glyph_set[int(elapsed * 4) % len(glyph_set)]
+            barrier_bar = f"{Colors.BRIGHT_RED}{g * fill}{FG_DIM}{'·' * (BAR_WIDTH - fill)}{RESET}"
 
-            # Build one render base; overlay boxes on top of it.
-            if parsed:
-                g = glyph_set[int(elapsed * 4) % len(glyph_set)]
-                fill = max(0, min(24, int(round((remaining / duration_seconds) * 24))))
-                barrier_bar = f"{Colors.BRIGHT_RED}{g * fill}{FG_DIM}{'·' * (24 - fill)}{RESET}"
-                msg = msgs[int(elapsed * 2) % len(msgs)]
+            msg = msgs[int(elapsed * 2) % len(msgs)]
+            timer_line = f"{Colors.CYAN}T-{remaining_i:02d}s{RESET}"
+            duel_line = f"{attacker_name} vs {defender_name}"
 
-                buf = self._battle_panel_buffer(
-                    title=title,
-                    parsed=parsed,
-                    message=msg,
-                    footer="Domain active.",
-                    side_lines=self._last_logs(3),
-                    side_title="DOMAIN",
-                    frame=int(elapsed * 6),
-                )
+            # Build overlay content only (outer + inner boxes) and write in-place.
+            overlay_buf = ""
 
-                # Two-layer centered overlay:
-                # Outer: "DOMAIN TIMER"
-                # Inner: live countdown + barrier line
-                outer_w = min(inner_w - 4, 60)
-                outer_y = self.oy + 7
-                # center outer box in the full frame, not relative to px padding
-                outer_x = self.ox + (self.window.width - outer_w) // 2
+            outer_body = [
+                f"{FG_LABEL}DOMAIN TIMER{RESET}",
+                f"{Colors.MAGENTA}{domain_name.upper()}{RESET}",
+                "",
+            ]
+            outer_box = _box_lines(title="", width=outer_w, body_lines=outer_body, title_color=FG_LABEL)
+            for i, ln in enumerate(outer_box):
+                overlay_buf += f"{ESC}{outer_y + i};{outer_x}H{_pad_ansi_line(_clamp(ln, outer_w), outer_w)}"
 
-                # Outer box body (kept stable)
-                outer_body = [
-                    f"{FG_LABEL}DOMAIN TIMER{RESET}",
-                    f"{Colors.MAGENTA}{domain_name.upper()}{RESET}",
-                    "",
-                ]
-                outer_box = _box_lines(
-                    title="",
-                    width=outer_w,
-                    body_lines=outer_body,
-                    title_color=FG_LABEL,
-                )
-                for i, ln in enumerate(outer_box):
-                    buf += f"{ESC}{outer_y + i};{outer_x}H{_pad_ansi_line(_clamp(ln, outer_w), outer_w)}"
+            inner_box = _box_lines(
+                title="",
+                width=inner_w_box,
+                body_lines=[f"{FG_LABEL}BARRIER{RESET} {barrier_bar}", timer_line, duel_line],
+                title_color=Colors.BRIGHT_RED,
+            )
+            for i, ln in enumerate(inner_box):
+                overlay_buf += f"{ESC}{inner_y + i};{inner_x}H{_pad_ansi_line(_clamp(ln, inner_w_box), inner_w_box)}"
 
-                # Inner box slightly lower + smaller for the "second layer"
-                inner_w_box = max(28, outer_w - 10)
-                inner_y = outer_y + 2
-                inner_x = self.ox + (self.window.width - inner_w_box) // 2
-
-                bar_line = f"{FG_LABEL}BARRIER{RESET} {barrier_bar}"
-                timer_line = f"{Colors.CYAN}T-{remaining:05.1f}s{RESET}"
-                duel_line = f"{attacker_name} vs {defender_name}"
-
-                inner_box = _box_lines(
-                    title="",
-                    width=inner_w_box,
-                    body_lines=[bar_line, timer_line, duel_line],
-                    title_color=Colors.BRIGHT_RED,
-                )
-
-                # Slight padding so inner doesn't overwrite border characters
-                for i, ln in enumerate(inner_box):
-                    buf += f"{ESC}{inner_y + i};{inner_x}H{_pad_ansi_line(_clamp(ln, inner_w_box), inner_w_box)}"
-            else:
-                # Fallback: still show boxed overlays without clearing the screen.
-                buf = self._frame_buffer(title)
-                remaining_txt = f"T-{remaining:05.1f}s"
-                g = glyph_set[int(elapsed * 4) % len(glyph_set)]
-                fill = max(0, min(24, int(round((remaining / duration_seconds) * 24))))
-                barrier_bar = f"{Colors.BRIGHT_RED}{g * fill}{FG_DIM}{'·' * (24 - fill)}{RESET}"
-                msg = msgs[int(elapsed * 2) % len(msgs)]
-
-                overlay_w = min(inner_w - 4, 52)
-                # center overlay in the frame
-                overlay_x = self.ox + (self.window.width - overlay_w) // 2
-                outer_y = self.oy + 7
-
-                outer_body = [
-                    f"{FG_LABEL}DOMAIN TIMER{RESET}",
-                    f"{Colors.MAGENTA}{domain_name.upper()}{RESET}",
-                    "",
-                ]
-                outer_box = _box_lines(title="", width=overlay_w, body_lines=outer_body, title_color=FG_LABEL)
-                for i, ln in enumerate(outer_box):
-                    buf += f"{ESC}{outer_y + i};{overlay_x}H{_pad_ansi_line(_clamp(ln, overlay_w), overlay_w)}"
-
-                inner_w_box = max(26, overlay_w - 10)
-                inner_y = outer_y + 2
-                inner_x = self.ox + (self.window.width - inner_w_box) // 2
-                inner_box = _box_lines(
-                    title="",
-                    width=inner_w_box,
-                    body_lines=[f"{FG_LABEL}BARRIER{RESET} {barrier_bar}", remaining_txt, msg],
-                    title_color=Colors.BRIGHT_RED,
-                )
-                for i, ln in enumerate(inner_box):
-                    buf += f"{ESC}{inner_y + i};{inner_x}H{_pad_ansi_line(_clamp(ln, inner_w_box), inner_w_box)}"
-
-            self._write_full(buf)
+            # Write only the overlay to avoid repainting the whole panel.
+            sys.stdout.write(overlay_buf)
+            sys.stdout.flush()
 
             if remaining <= 0:
                 break
@@ -1408,7 +1460,10 @@ class AnsiGamePresenter:
                 if nb is None:
                     time.sleep(0.02)
                     continue
+                if nb == "ESC":
+                    return
                 break
+
 
     def domain_attack_animation(
         self,
@@ -1511,6 +1566,14 @@ class AnsiGamePresenter:
                 intensity = 1 + (frame % 3)
                 glyph_line = f"{Colors.BRIGHT_YELLOW}{glyph * intensity}{RESET}"
                 buf += f"{ESC}{center_row};{center_col}H{glyph_line}"
+                # overlay technique-specified ASCII art (if available)
+                asset_lines = self._render_asset_overlay(technique_key, frame, inner_w)
+                if asset_lines:
+                    overlay_w = max((_visible_len(l) for l in asset_lines), default=0)
+                    overlay_x = self.ox + (self.window.width - overlay_w) // 2
+                    overlay_y = self.oy + 8
+                    for idx, ln in enumerate(asset_lines):
+                        buf += f"{ESC}{overlay_y + idx};{overlay_x}H{_pad_ansi_line(_clamp(ln, overlay_w), overlay_w)}"
             else:
                 # Fallback: ensure we still render the battle HUD (minimal)
                 minimal_parsed = {
@@ -1547,6 +1610,14 @@ class AnsiGamePresenter:
                 overlay_lines = _box_lines("", overlay_w, [f"{domain_name} {strike_label}"], title_color=Colors.BRIGHT_RED)
                 for i, ln in enumerate(overlay_lines):
                     buf += f"{ESC}{overlay_y + i};{overlay_x}H{_pad_ansi_line(_clamp(ln, overlay_w), overlay_w)}"
+                # also try asset overlay for fallback HUD
+                asset_lines = self._render_asset_overlay(technique_key, frame, inner_w)
+                if asset_lines:
+                    overlay_w = max((_visible_len(l) for l in asset_lines), default=0)
+                    overlay_x = self.ox + (self.window.width - overlay_w) // 2
+                    overlay_y = self.oy + 8
+                    for idx, ln in enumerate(asset_lines):
+                        buf += f"{ESC}{overlay_y + idx};{overlay_x}H{_pad_ansi_line(_clamp(ln, overlay_w), overlay_w)}"
 
             self._write_full(buf)
             time.sleep(0.09)

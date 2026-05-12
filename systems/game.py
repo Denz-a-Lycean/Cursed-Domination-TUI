@@ -5,7 +5,7 @@ import time
 from models.enemy import Enemy
 from models.item import AttackBoostItem, DomainChargeItem, HealItem
 from systems.combat import start_combat
-from systems.save_manager import save_game
+from systems.save_manager import save_game, clear_save
 from utils.effects import format_duration, set_glitch_level
 from systems.tutorial import run_tutorial
 
@@ -460,6 +460,12 @@ class Game:
         while True:
             if self.current_stage > self.max_stage:
                 self._show_ending()
+                # Final run complete: clear persisted save so player doesn't
+                # accidentally resume a finished run.
+                try:
+                    clear_save()
+                except Exception:
+                    pass
                 break
 
             self._prepare_stage()

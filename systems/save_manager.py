@@ -1,7 +1,14 @@
-"""Save/load helpers for persisting a run to JSON."""
+"""Save/load helpers for persisting a run to JSON.
+
+Improvements:
+- Atomic writes (write to a temp file then replace) to avoid corrupted saves.
+- Adds `save_version` and `saved_at` metadata to saves.
+- Keeps backward compatibility when loading legacy saves.
+"""
 
 import json
 import os
+import datetime
 
 from utils.validator import (
     ValidationError,
@@ -16,25 +23,70 @@ _PKG_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SAVE_FILE = os.path.join(_PKG_ROOT, "data", "save.json")
 LEGACY_SAVE_FILE = os.path.join(_PKG_ROOT, "saves", "save.json")
 
+# Increment this if the save schema changes incompatibly.
+SAVE_VERSION = 1
 
-def save_game(player, stage, elapsed_time=0):
-    """
-    Save player data to JSON file.
+
+def save_game(player, stage, elapsed_time=0, last_scene=None, notes=None):
+    """Save player data to JSON file atomically.
+
+    `stage` is the stage index the player will resume at next launch (usually
+    the next stage after a win). `elapsed_time` should be the accumulated
+    play time in seconds.
     """
 
     # The Player object owns its own serialization so save logic stays small.
     data = player.serialize_state()
     data.update(
         {
-            "stage": stage,
+            "stage": int(stage),
             "play_time_seconds": int(elapsed_time),
+            "save_version": SAVE_VERSION,
+            "saved_at": datetime.datetime.utcnow().isoformat() + "Z",
+            "last_scene": str(last_scene) if last_scene is not None else "",
+            "notes": str(notes) if notes is not None else "",
         }
     )
 
     os.makedirs(os.path.dirname(SAVE_FILE) or ".", exist_ok=True)
 
-    with open(SAVE_FILE, "w", encoding="utf-8") as file:
-        json.dump(data, file, indent=4)
+    tmp_path = SAVE_FILE + ".tmp"
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as file:
+            json.dump(data, file, indent=4)
+            file.flush()
+            try:
+                os.fsync(file.fileno())
+            except OSError:
+                # Not critical on some platforms; best-effort.
+                pass
+        # Atomic replace
+        os.replace(tmp_path, SAVE_FILE)
+    except Exception:
+        # Clean up temp file on failure
+        try:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+        except Exception:
+            pass
+        raise
+
+
+def clear_save():
+    """Remove any existing save files (primary + legacy).
+
+    Returns True if at least one file was removed, False otherwise.
+    """
+    removed = False
+    for p in (SAVE_FILE, LEGACY_SAVE_FILE):
+        try:
+            if os.path.exists(p):
+                os.remove(p)
+                removed = True
+        except OSError:
+            # ignore errors, attempt to continue removing other paths
+            continue
+    return removed
 
 
 def load_game():
@@ -64,7 +116,13 @@ def save_exists():
     Check if save file exists.
     """
 
-    return _resolve_save_path() is not None
+    path = _resolve_save_path()
+    if not path:
+        return False
+    try:
+        return os.path.getsize(path) > 0
+    except OSError:
+        return False
 
 
 def _resolve_save_path():
@@ -85,7 +143,8 @@ def validate_save_data(data):
     if not isinstance(data, dict):
         raise ValidationError("Save data must be a JSON object.")
 
-    return {
+    # Core player fields validated and returned; include metadata when present.
+    out = {
         "name": validate_non_empty_text(data.get("name", "Player"), field_name="Player name"),
         "class": validate_player_class(data.get("class", "Seeker")),
         "hp": validate_int(data.get("hp", 100), "HP", minimum=0, maximum=9999),
@@ -103,3 +162,8 @@ def validate_save_data(data):
             {"HealItem", "DomainChargeItem", "AttackBoostItem"},
         ),
     }
+
+    # Optional metadata preserved for consumers that want to show it.
+    out["save_version"] = int(data.get("save_version", SAVE_VERSION))
+    out["saved_at"] = data.get("saved_at", "")
+    return out

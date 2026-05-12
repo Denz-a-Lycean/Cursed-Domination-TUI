@@ -1,7 +1,6 @@
 import os
 import sys
 import time
-import msvcrt
 import random
 import math
 
@@ -129,10 +128,16 @@ def main():
         Echo(engine.width//2, engine.height//2, -1.0, 0.8, 'o'),
         Echo(engine.width//2, engine.height//2, 0.8, -0.7, 'O')
     ]
+    # Import msvcrt lazily so this module can be loaded on non-Windows hosts
+    try:
+        import msvcrt as _msv
+        msvcrt = _msv
+    except Exception:
+        msvcrt = None
 
     try:
         while True:
-            if msvcrt.kbhit():
+            if msvcrt and msvcrt.kbhit():
                 if msvcrt.getch().lower() == b'q':
                     break
 
@@ -162,6 +167,37 @@ def main():
         pass
     finally:
         engine.cleanup()
+
+def render_domain_frame(frame: int, width: int, height: int) -> list[str]:
+    """Return a compact Silent Palace overlay for domain animations.
+
+    Produces a few rows with moving "echo" characters. Lines are returned
+    with ANSI color codes and are not written to the terminal here.
+    """
+    rows = max(5, min(8, height))
+    mid = rows // 2
+    out: list[str] = ["" for _ in range(rows)]
+
+    # Top and bottom faint border
+    border = f"{FG_DIM}{'─' * min(width, 40)}{RESET}"
+    out[0] = border
+    out[-1] = border
+
+    # moving echoes across the middle rows
+    for i, ch in enumerate(['0', 'o', 'O']):
+        # compute a horizontal position scaled to available width
+        if width <= 10:
+            pos = 2 + i * 2
+        else:
+            pos = int(((math.sin((frame + i) * 0.6) + 1) / 2) * (max(1, width - 6))) + 2
+        # build string for middle row
+        if pos >= width:
+            pos = max(0, width - 3)
+        # ensure we don't produce negative paddings
+        out[mid] += " " * max(0, pos - len(out[mid])) + f"{FG_CYAN}{ch}{RESET}"
+
+    return out
+
 
 if __name__ == "__main__":
     main()
