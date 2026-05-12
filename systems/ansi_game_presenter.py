@@ -1355,7 +1355,7 @@ class AnsiGamePresenter:
                 asset_lines = self._render_asset_overlay(technique_key, i, inner_w)
                 if asset_lines:
                     overlay_w = max((_visible_len(l) for l in asset_lines), default=0)
-                    overlay_x = self.ox + (self.window.width - overlay_w) // 2
+                    overlay_x = px + (inner_w - overlay_w) // 2
                     overlay_y = self.oy + 8
                     for idx, ln in enumerate(asset_lines):
                         buf += f"{ESC}{overlay_y + idx};{overlay_x}H{_pad_ansi_line(_clamp(ln, overlay_w), overlay_w)}"
@@ -1417,20 +1417,21 @@ class AnsiGamePresenter:
 
         parsed = _parse_combat_status(list(st0 or [])) if st0 else None
 
-        # compute offsets & overlay geometry once
+        # compute offsets & overlay geometry once (center relative to combat panel)
         self._sync_offsets()
         inner_w = self.window.width - 4
+        px = self.ox + 2
 
         if parsed:
-            # Precompute centered outer/inner box positions based on current window.
+            # Precompute centered outer/inner box positions based on the combat panel.
             outer_w = min(int(inner_w - 4), 60)
             outer_w = max(50, outer_w)
             outer_y = self.oy + 7
-            outer_x = self.ox + (self.window.width - outer_w) // 2
+            outer_x = px + (inner_w - outer_w) // 2
 
             inner_y = outer_y + 2
             inner_w_box = max(28, outer_w - 10)
-            inner_x = outer_x + (outer_w - inner_w_box) // 2
+            inner_x = px + (inner_w - inner_w_box) // 2
 
             # Render the stable base once (no per-tick full redraw).
             base_buf = self._battle_panel_buffer(
@@ -1448,11 +1449,11 @@ class AnsiGamePresenter:
             overlay_w = min(inner_w - 4, 52)
             outer_w = overlay_w
             outer_y = self.oy + 7
-            outer_x = self.ox + (self.window.width - outer_w) // 2
+            outer_x = px + (inner_w - outer_w) // 2
 
             inner_y = outer_y + 2
             inner_w_box = max(26, outer_w - 10)
-            inner_x = self.ox + (self.window.width - inner_w_box) // 2
+            inner_x = px + (inner_w - inner_w_box) // 2
 
             base_buf = self._frame_buffer(title)
             self._write_full(base_buf)
@@ -1630,7 +1631,7 @@ class AnsiGamePresenter:
                 asset_lines = self._render_asset_overlay(technique_key, frame, inner_w)
                 if asset_lines:
                     overlay_w = max((_visible_len(l) for l in asset_lines), default=0)
-                    overlay_x = self.ox + (self.window.width - overlay_w) // 2
+                    overlay_x = px + (inner_w - overlay_w) // 2
                     overlay_y = self.oy + 8
                     for idx, ln in enumerate(asset_lines):
                         buf += f"{ESC}{overlay_y + idx};{overlay_x}H{_pad_ansi_line(_clamp(ln, overlay_w), overlay_w)}"
@@ -1674,7 +1675,7 @@ class AnsiGamePresenter:
                 asset_lines = self._render_asset_overlay(technique_key, frame, inner_w)
                 if asset_lines:
                     overlay_w = max((_visible_len(l) for l in asset_lines), default=0)
-                    overlay_x = self.ox + (self.window.width - overlay_w) // 2
+                    overlay_x = px + (inner_w - overlay_w) // 2
                     overlay_y = self.oy + 8
                     for idx, ln in enumerate(asset_lines):
                         buf += f"{ESC}{overlay_y + idx};{overlay_x}H{_pad_ansi_line(_clamp(ln, overlay_w), overlay_w)}"

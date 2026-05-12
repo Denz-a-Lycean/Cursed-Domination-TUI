@@ -1,0 +1,194 @@
+# ---- Python ----
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.pytest_cache/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask
+instance/
+.webassets-cache
+
+# Scrapy
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# pyproject / poetry
+poetry.lock
+
+# virtualenv / environment
+.env
+.venv/
+venv/
+ENV/
+env/
+env.bak/
+venv.bak/
+
+# Spyder
+.spyderproject
+.spyproject
+
+# Rope
+.ropeproject
+
+# mkdocs
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre
+.pyre/
+
+# pytype
+.pytype/
+
+# Pyright
+.pyright/
+
+# IDEs / editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# JetBrains
+*.iml
+
+# System files
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+Icon?
+
+# Logs
+*.log
+
+# Local env config
+.env.local
+.env.*.local
+
+# Backup / temporary
+*~
+*.bak
+*.swp
+.#*
+
+# Compiled objects
+*.pyc
+*.pyo
+*.pyd
+
+# Generated docs / sites
+_build/
+
+# Node (if present)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS metadata
+Desktop.ini
+Thumbs.db
+
+# Ignore coverage reports and caches
+coverage/
+test-results/
+
+# Ignore local database files
+*.db
+*.sqlite3
+
+# Ignore packaged archives
+*.zip
+*.tar.gz
+*.rar
+
+# Ignore compiled executables
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Ignore secret files
+secrets.json
+credentials.json
+
+# Project-specific
+# Add further ignores below as needed for local tools or caches
