@@ -5,7 +5,7 @@ import time
 from utils.effects import format_duration
 
 # UX tuning constants
-DOMAIN_SELECTION_WINDOW = 5.0  # seconds for the player selection window inside a domain
+DOMAIN_SELECTION_WINDOW = 3.0  # seconds for the player selection window inside a domain (short unified timer)
 DOMAIN_POST_ATTACK_ANIMATION = 1.2  # seconds for domain hit animation (fast, no long cinematic)
 
 
@@ -496,27 +496,10 @@ class CombatSystem:
                 seconds=0.9,
                 side_title="DOMAIN",
             )
-        else:
-            # Domain attack: heavy hit with an extended domain animation.
-            self._play_domain_attack_animation(
-                "Domain Attack",
-                attacker_name=self.player.name,
-                defender_name=self.enemy.name,
-                domain_name=domain_name,
-                technique_key=technique_key,
-                seconds=DOMAIN_POST_ATTACK_ANIMATION,
-            )
 
-            # Resolve the domain hit. We delay consuming domain_meter until
-            # after the 30s timer so the HUD behaves as requested.
-            result = self.player._domain_effect(self.enemy)
-            lines = [result.get("message", "Domain attack initiated.")]
-            lines.extend(result.get("lines", []))
-            if result.get("damage", 0) > 0:
-                lines.append(f"{self.enemy.name} took {result['damage']} damage.")
-            self._show_battle_message("Domain Attack Resolved", lines, seconds=0.95, side_title="DOMAIN")
-
-        # Domain selection window: enemy turn happens after it completes.
+        # Unified domain timer: run a short DOMAIN_SELECTION_WINDOW (3s by default)
+        # and then resolve the chosen action. This keeps the UX to a single
+        # timer + impact sequence instead of separate long cinematic flows.
         self._play_domain_timer(
             "Domain Expansion",
             attacker_name=self.player.name,
@@ -530,8 +513,26 @@ class CombatSystem:
         # Domain ends after the timer.
         self.player.domain_meter = 0
 
-        # Defensive-only 'staying' effects (no extra damage).
-        if choosing_defend:
+        if choosing_attack:
+            # After the unified timer completes, play the domain impact animation
+            # and resolve the domain effect.
+            self._play_domain_attack_animation(
+                "Domain Attack",
+                attacker_name=self.player.name,
+                defender_name=self.enemy.name,
+                domain_name=domain_name,
+                technique_key=technique_key,
+                seconds=DOMAIN_POST_ATTACK_ANIMATION,
+            )
+
+            result = self.player._domain_effect(self.enemy)
+            lines = [result.get("message", "Domain attack initiated.")]
+            lines.extend(result.get("lines", []))
+            if result.get("damage", 0) > 0:
+                lines.append(f"{self.enemy.name} took {result['damage']} damage.")
+            self._show_battle_message("Domain Attack Resolved", lines, seconds=0.95, side_title="DOMAIN")
+        else:
+            # Defensive-only 'staying' effects (no extra damage).
             self._apply_domain_passive_effect(technique_key)
             self._show_battle_message(
                 "Domain Effect",

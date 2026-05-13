@@ -9,6 +9,7 @@ import time
 import os
 import types
 import math
+import random
 
 from core.engine import (
     BG_MAIN,
@@ -117,6 +118,17 @@ def _box_lines(title: str, width: int, body_lines: list[str], title_color: str =
     ]
     bottom = f"{FG_BORDER}└{'─' * (width - 2)}┘{RESET}"
     return [top, *body, bottom]
+
+
+# Large DOMAIN ASCII used for cinematic overlays (copied from reference animation)
+DOMAIN_ASCII = [
+    "██████╗  ██████╗ ███╗   ███╗ █████╗ ██╗███╗   ██╗",
+    "██╔══██╗██╔═══██╗████╗ ████║██╔══██╗██║████╗  ██║",
+    "██║  ██║██║   ██║██╔████╔██║███████║██║██╔██╗ ██║",
+    "██║  ██║██║   ██║██║╚██╔╝██║██╔══██║██║██║╚██╗██║",
+    "██████╔╝╚██████╔╝██║ ╚═╝ ██║██║  ██║██║██║ ╚████║",
+    "╚═════╝  ╚═════╝ ╚═╝     ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝",
+]
 
 
 def _footer_bar(width: int, text: str) -> str:
@@ -1219,7 +1231,10 @@ class AnsiGamePresenter:
                 st = status_data() if callable(status_data) else status_data
             else:
                 st = status_lines() if callable(status_lines) else status_lines
-            parsed = _parse_combat_status(list(st or [])) if st else None
+            if isinstance(st, dict):
+                parsed = st
+            else:
+                parsed = _parse_combat_status(list(st or [])) if st else None
 
             # prepare base buffers and geometry
             inner_w = self.window.width - 4
@@ -1310,7 +1325,10 @@ class AnsiGamePresenter:
                 st = status_data() if callable(status_data) else status_data
             else:
                 st = status_lines() if callable(status_lines) else status_lines
-            parsed = _parse_combat_status(list(st or [])) if st else None
+            if isinstance(st, dict):
+                parsed = st
+            else:
+                parsed = _parse_combat_status(list(st or [])) if st else None
 
             buf = self._frame_buffer(title)
             inner_w = self.window.width - 4
@@ -1557,13 +1575,50 @@ class AnsiGamePresenter:
 
         self._push_log(f"{domain_name}: {strike_label}")
 
+        # Prepare cinematic ASCII overlay and particles (inspired by DOAIN_TESTING_ANIMATION.py)
+        inner_w = self.window.width - 4
+        px = self.ox + 2
+        overlay_lines = list(DOMAIN_ASCII) if DOMAIN_ASCII else []
+        overlay_h = len(overlay_lines)
+        overlay_w = max((_visible_len(l) for l in overlay_lines), default=0) if overlay_lines else 0
+        overlay_x = px + (inner_w - overlay_w) // 2 if overlay_w else px + (inner_w // 2)
+        overlay_y = self.oy + 5
+
+        num_particles = min(36, max(6, overlay_w // 2)) if overlay_w else 0
+        particles = []
+        for _ in range(num_particles):
+            particles.append({
+                'x': random.randint(overlay_x, overlay_x + max(0, overlay_w - 1)),
+                'y': random.randint(overlay_y, overlay_y + max(0, overlay_h - 1)),
+                'dx': random.choice([-1, 0, 1]),
+                'dy': random.choice([-1, 0, 1]),
+                'char': random.choice(['·','•','*','+']),
+                'life': random.randint(6, 20),
+            })
+
         for frame in range(frames):
+            # Update particles (simple motion + respawn)
+            for p in particles:
+                p['x'] += p['dx']
+                p['y'] += p['dy']
+                p['life'] -= 1
+                if p['life'] <= 0 or not (overlay_x <= p['x'] < overlay_x + overlay_w and overlay_y <= p['y'] < overlay_y + overlay_h):
+                    p['x'] = random.randint(overlay_x, overlay_x + max(0, overlay_w - 1))
+                    p['y'] = random.randint(overlay_y, overlay_y + max(0, overlay_h - 1))
+                    p['dx'] = random.choice([-1, 0, 1])
+                    p['dy'] = random.choice([-1, 0, 1])
+                    p['char'] = random.choice(['·', '•', '*', '+'])
+                    p['life'] = random.randint(6, 20)
+
             # Resolve HUD data for stable battlefield rendering.
             if status_data is not None:
                 st = status_data() if callable(status_data) else status_data
             else:
                 st = status_lines() if callable(status_lines) else status_lines
-            parsed = _parse_combat_status(list(st or [])) if st else None
+            if isinstance(st, dict):
+                parsed = st
+            else:
+                parsed = _parse_combat_status(list(st or [])) if st else None
 
             if parsed:
                 buf = self._battle_panel_buffer(
@@ -1575,6 +1630,27 @@ class AnsiGamePresenter:
                     side_title="DOMAIN",
                     frame=frame,
                 )
+
+                # Render cinematic DOMAIN ASCII overlay (center) and particles
+                try:
+                    if overlay_lines and overlay_w > 0:
+                        pulse = (math.sin(frame * 2.5) + 1) / 2
+                        domain_color = Colors.MAGENTA if pulse > 0.5 else Colors.CYAN
+                        for i, ln in enumerate(overlay_lines):
+                            try:
+                                buf += f"{ESC}{overlay_y + i};{overlay_x}H{_pad_ansi_line(domain_color + ln + RESET, overlay_w)}"
+                            except Exception:
+                                pass
+                        # render particles
+                        for p in particles:
+                            try:
+                                if overlay_x <= p['x'] < overlay_x + overlay_w and overlay_y <= p['y'] < overlay_y + overlay_h:
+                                    p_col = Colors.MAGENTA if random.random() > 0.5 else Colors.CYAN
+                                    buf += f"{ESC}{p['y']};{p['x']}H{p_col}{p['char']}{RESET}"
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
 
                 # Center impact box near the top-center region for prominence.
                 inner_w = self.window.width - 4
@@ -1665,6 +1741,32 @@ class AnsiGamePresenter:
                 # small centered impact label overlay for non-parsed state
                 inner_w = self.window.width - 4
                 px = self.ox + 2
+
+                # Try to render a larger DOMAIN ASCII if there is room, otherwise fall back
+                try:
+                    dom_lines = DOMAIN_ASCII if DOMAIN_ASCII and inner_w > 60 else None
+                    if dom_lines:
+                        dom_h = len(dom_lines)
+                        dom_w = max((_visible_len(l) for l in dom_lines), default=0)
+                        dom_x = px + (inner_w - dom_w) // 2
+                        dom_y = self.oy + 5
+                        for i, ln in enumerate(dom_lines):
+                            try:
+                                pulse = (math.sin(frame * 2.5) + 1) / 2
+                                domain_color = Colors.MAGENTA if pulse > 0.5 else Colors.CYAN
+                                buf += f"{ESC}{dom_y + i};{dom_x}H{_pad_ansi_line(domain_color + ln + RESET, dom_w)}"
+                            except Exception:
+                                pass
+                        for p in particles:
+                            try:
+                                if dom_x <= p['x'] < dom_x + dom_w and dom_y <= p['y'] < dom_y + dom_h:
+                                    p_col = Colors.MAGENTA if random.random() > 0.5 else Colors.CYAN
+                                    buf += f"{ESC}{p['y']};{p['x']}H{p_col}{p['char']}{RESET}"
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+
                 overlay_w = min(40, inner_w - 8)
                 overlay_x = px + (inner_w - overlay_w) // 2
                 overlay_y = self.oy + 8

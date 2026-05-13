@@ -1,22 +1,24 @@
 {
-    "name": "agresie",
+    "name": "emmangyan",
     "class": "Seeker",
     "hp": 120,
     "max_hp": 120,
-    "attack": 15,
+    "attack": 19,
     "level": 2,
     "exp": 50,
     "domain_meter": 100,
-    "mental_instability": 0,
-    "death_count": 0,
+    "mental_instability": 1,
+    "death_count": 1,
     "inventory": [
         "HealItem",
-        "DomainChargeItem",
-        "AttackBoostItem",
         "HealItem",
         "DomainChargeItem",
         "AttackBoostItem"
     ],
     "stage": 4,
-    "play_time_seconds": 168
+    "play_time_seconds": 107,
+    "save_version": 1,
+    "saved_at": "2026-05-13T04:31:15.196460Z",
+    "last_scene": "",
+    "notes": ""
 }

@@ -13,7 +13,7 @@ from systems.ansi_game_presenter import AnsiGamePresenter
 from systems.combat import start_combat
 from systems.game import Game
 from systems.save_manager import save_game
-from utils.effects import set_glitch_level
+from utils.effects import set_glitch_level, render_screen
 
 
 class GameplayStageBattleScreen(BaseScreen):
@@ -36,6 +36,8 @@ class GameplayStageBattleScreen(BaseScreen):
         self.title = frame_title
         self.win_next_state = win_next_state
         self.saved_stage_after_win = int(saved_stage_after_win)
+        # This is a gameplay screen so instability glitching is allowed here.
+        self.glitch_allowed = True
 
     def setup_ui(self):
         self.widgets = []
@@ -44,6 +46,41 @@ class GameplayStageBattleScreen(BaseScreen):
         if player:
             self.state.instability = player.mental_instability
             set_glitch_level(player.mental_instability)
+        # If instability grows too high, force a collapse: show a glitched
+        # warning for ~10s, then perform a GAME OVER reset and clear saves.
+        try:
+            if player and int(player.mental_instability) > 3:
+                from systems.save_manager import clear_save
+
+                duration = 10
+                start = time.monotonic()
+                while time.monotonic() - start < duration:
+                    remaining = int(duration - (time.monotonic() - start))
+                    render_screen(
+                        "INSTABILITY CRITICAL",
+                        lines=[
+                            f"Instability level: {player.mental_instability}/5",
+                            None,
+                            f"Returning to Main Menu in {remaining}...",
+                        ],
+                        status_lines=None,
+                    )
+                    time.sleep(1)
+
+                render_screen(
+                    "GAME OVER",
+                    lines=["INSTABILITY TOO HIGH — GAME UNPLAYABLE", None, "Returning to Main Menu..."],
+                    status_lines=None,
+                )
+                time.sleep(1.5)
+                try:
+                    clear_save()
+                except Exception:
+                    pass
+                return True
+        except Exception:
+            # If anything goes wrong while handling collapse, do not crash the stage loop.
+            pass
 
     def run(self) -> str:
         self._update_layout_from_window()
@@ -72,7 +109,8 @@ class GameplayStageBattleScreen(BaseScreen):
         self.state.checkpoint_stage = self.stage_num
         self.state.last_checkpoint_payload = dict(game._checkpoint_state) if isinstance(game._checkpoint_state, dict) else None
 
-        self._sync_glitch_ui(self.state.player)
+        if self._sync_glitch_ui(self.state.player):
+            return "SCREEN_MAIN_MENU"
 
 
         while True:
@@ -87,7 +125,8 @@ class GameplayStageBattleScreen(BaseScreen):
                 game.give_rewards()
                 self.state.current_stage = self.saved_stage_after_win
                 game.current_stage = self.saved_stage_after_win
-                self._sync_glitch_ui(self.state.player)
+                if self._sync_glitch_ui(self.state.player):
+                    return "SCREEN_MAIN_MENU"
                 # Mirror reference save rule; always persist boss-clear with next stage index for ANSI flow.
                 save_game(
                     self.state.player,
@@ -97,7 +136,8 @@ class GameplayStageBattleScreen(BaseScreen):
                 return self.win_next_state
 
             retry = game.death_system()
-            self._sync_glitch_ui(self.state.player)
+            if self._sync_glitch_ui(self.state.player):
+                return "SCREEN_MAIN_MENU"
 
             if not retry:
                 return "SCREEN_MAIN_MENU"

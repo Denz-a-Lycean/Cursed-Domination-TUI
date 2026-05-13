@@ -2,7 +2,17 @@ import os
 import shutil
 import time
 import sys
-import msvcrt
+try:
+    import msvcrt
+    _HAS_MSVCRT = True
+except ImportError:
+    # Provide a POSIX-compatible fallback so arrow keys work when msvcrt
+    # is not available (e.g., non-Windows environments or some terminals).
+    _HAS_MSVCRT = False
+    import tty
+    import termios
+    import select
+    msvcrt = None
 import math
 import textwrap
 import random
@@ -209,68 +219,140 @@ class Button(Widget):
 # INPUT & DISPLAY MANAGEMENT
 # ==========================================
 
-def get_keypress():
-    """Reads a single keypress from Windows msvcrt safely."""
-    key = msvcrt.getch()
-    if key in (b'\x00', b'\xe0'):
+if _HAS_MSVCRT:
+    def get_keypress():
+        """Reads a single keypress from Windows msvcrt safely."""
         key = msvcrt.getch()
-        if key == b'H':
-            return "UP"
-        if key == b'P':
-            return "DOWN"
-        if key == b'K':
-            return "LEFT"
-        if key == b'M':
-            return "RIGHT"
-    elif key == b'\r':
-        return "ENTER"
-    elif key == b'\x08':
-        return "BACKSPACE"
-    elif key == b'\t':
-        return "TAB"
-    elif key == b'\x1b':
-        return "ESC"
-    else:
+        if key in (b'\x00', b'\xe0'):
+            key = msvcrt.getch()
+            if key == b'H':
+                return "UP"
+            if key == b'P':
+                return "DOWN"
+            if key == b'K':
+                return "LEFT"
+            if key == b'M':
+                return "RIGHT"
+        elif key == b'\r':
+            return "ENTER"
+        elif key == b'\x08':
+            return "BACKSPACE"
+        elif key == b'\t':
+            return "TAB"
+        elif key == b'\x1b':
+            return "ESC"
+        else:
+            try:
+                char = key.decode('utf-8')
+                if char.isprintable():
+                    return char
+            except UnicodeDecodeError:
+                pass
+        return ""
+else:
+    def _posix_getch_blocking():
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
         try:
-            char = key.decode('utf-8')
-            if char.isprintable():
-                return char
-        except UnicodeDecodeError:
-            pass
-    return ""
+            tty.setraw(fd)
+            ch = sys.stdin.read(1)
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
+
+    def get_keypress():
+        """POSIX-compatible blocking key read supporting ANSI arrow sequences."""
+        ch = _posix_getch_blocking()
+        if not ch:
+            return ""
+        if ch == '\x1b':
+            # Attempt to read CSI sequence (e.g. \x1b[A)
+            r, _, _ = select.select([sys.stdin], [], [], 0.02)
+            if r:
+                ch2 = sys.stdin.read(1)
+                if ch2 == '[':
+                    ch3 = sys.stdin.read(1)
+                    if ch3 == 'A':
+                        return "UP"
+                    if ch3 == 'B':
+                        return "DOWN"
+                    if ch3 == 'C':
+                        return "RIGHT"
+                    if ch3 == 'D':
+                        return "LEFT"
+            return "ESC"
+        if ch in ('\r', '\n'):
+            return "ENTER"
+        if ch in ('\x7f', '\x08'):
+            return "BACKSPACE"
+        if ch == '\t':
+            return "TAB"
+        return ch if ch.isprintable() else ""
 
 
-def get_keypress_nb():
-    """Non-blocking key read. Returns None when no key is available."""
-    if not msvcrt.kbhit():
+if _HAS_MSVCRT:
+    def get_keypress_nb():
+        """Non-blocking key read. Returns None when no key is available."""
+        if not msvcrt.kbhit():
+            return None
+        key = msvcrt.getch()
+        if key in (b'\x00', b'\xe0'):
+            key = msvcrt.getch()
+            if key == b'H':
+                return "UP"
+            if key == b'P':
+                return "DOWN"
+            if key == b'K':
+                return "LEFT"
+            if key == b'M':
+                return "RIGHT"
+        elif key == b'\r':
+            return "ENTER"
+        elif key == b'\x08':
+            return "BACKSPACE"
+        elif key == b'\t':
+            return "TAB"
+        elif key == b'\x1b':
+            return "ESC"
+        else:
+            try:
+                char = key.decode('utf-8')
+                if char.isprintable():
+                    return char
+            except UnicodeDecodeError:
+                pass
         return None
-    key = msvcrt.getch()
-    if key in (b'\x00', b'\xe0'):
-        key = msvcrt.getch()
-        if key == b'H':
-            return "UP"
-        if key == b'P':
-            return "DOWN"
-        if key == b'K':
-            return "LEFT"
-        if key == b'M':
-            return "RIGHT"
-    elif key == b'\r':
-        return "ENTER"
-    elif key == b'\x08':
-        return "BACKSPACE"
-    elif key == b'\t':
-        return "TAB"
-    elif key == b'\x1b':
-        return "ESC"
-    else:
-        try:
-            char = key.decode('utf-8')
-            if char.isprintable():
-                return char
-        except UnicodeDecodeError:
-            pass
-    return None
+else:
+    def get_keypress_nb():
+        """POSIX non-blocking key read supporting ANSI arrow sequences."""
+        r, _, _ = select.select([sys.stdin], [], [], 0)
+        if not r:
+            return None
+        ch = sys.stdin.read(1)
+        if not ch:
+            return None
+        if ch == '\x1b':
+            r2, _, _ = select.select([sys.stdin], [], [], 0.01)
+            if r2:
+                ch2 = sys.stdin.read(1)
+                if ch2 == '[':
+                    ch3 = sys.stdin.read(1)
+                    if ch3 == 'A':
+                        return "UP"
+                    if ch3 == 'B':
+                        return "DOWN"
+                    if ch3 == 'C':
+                        return "RIGHT"
+                    if ch3 == 'D':
+                        return "LEFT"
+            return "ESC"
+        if ch in ('\r', '\n'):
+            return "ENTER"
+        if ch in ('\x7f', '\x08'):
+            return "BACKSPACE"
+        if ch == '\t':
+            return "TAB"
+        return ch if ch.isprintable() else None
 
 
 class WindowManager:
@@ -359,6 +441,8 @@ class BaseScreen:
         self.title = "Screen"
         self.widgets = []
         self.focus_index = 0
+        # Only screens that opt-in should apply the instability glitch effect.
+        self.glitch_allowed = False
 
     def _update_layout_from_window(self):
         """Syncs screen offsets with window manager's current centering."""
@@ -422,7 +506,7 @@ class BaseScreen:
                 
                 # Check for exit input multiple times during the wait to improve responsiveness
                 for _ in range(10):
-                    if msvcrt.kbhit():
+                    if _HAS_MSVCRT and msvcrt.kbhit():
                         if msvcrt.getch().lower() == b'x':
                             return "EXIT_NOW"
                     time.sleep(0.05)
@@ -442,19 +526,25 @@ class BaseScreen:
             # Logic update
             self.update()
 
-            # Apply Cursed Distortion if instability > 0
+            # Apply Cursed Distortion if instability > 0 but only when the
+            # current screen opts-in (`glitch_allowed`). Gameplay screens set
+            # this flag to True so menus and main UI remain stable.
             instability = 0
             if hasattr(self, "state") and self.state:
                 instability = getattr(self.state, "instability", 0)
-            
-            set_glitch_level(instability)
-            advance_glitch_frame()
-            
+
+            if getattr(self, "glitch_allowed", False):
+                set_glitch_level(instability)
+                advance_glitch_frame()
+            else:
+                # Ensure global glitch state is disabled for non-gameplay screens.
+                set_glitch_level(0)
+
             # Draw to a string buffer then write all at once (double buffering)
             buffer = self.window.draw_frame(self.title)
 
-            # Apply glitching to the entire buffer
-            if instability > 0:
+            # Apply glitching to the entire buffer only when allowed.
+            if getattr(self, "glitch_allowed", False) and instability > 0:
                 lines = buffer.split("\n")
                 new_lines = []
                 for i, line in enumerate(lines):
@@ -465,7 +555,7 @@ class BaseScreen:
 
             for i, widget in enumerate(self.widgets):
                 rendered = widget.render(is_focused=(i == self.focus_index))
-                if instability > 0:
+                if getattr(self, "glitch_allowed", False) and instability > 0:
                     rendered = glitch_text(rendered, "body")
                 buffer += rendered
 
@@ -601,7 +691,7 @@ class SceneScreen(BaseScreen):
                 
                 # Check for exit input multiple times during the wait to improve responsiveness
                 for _ in range(10):
-                    if msvcrt.kbhit():
+                    if _HAS_MSVCRT and msvcrt.kbhit():
                         if msvcrt.getch().lower() == b'x':
                             return "EXIT_NOW"
                     time.sleep(0.05)
