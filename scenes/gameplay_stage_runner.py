@@ -7,6 +7,7 @@ Thin `gameplay_N_*.py` modules re-export the concrete screen classes defined her
 from __future__ import annotations
 
 import sys
+import time
 
 from core.engine import BaseScreen, ESC, RESET
 from systems.ansi_game_presenter import AnsiGamePresenter
@@ -112,13 +113,21 @@ class GameplayStageBattleScreen(BaseScreen):
         if self._sync_glitch_ui(self.state.player):
             return "SCREEN_MAIN_MENU"
 
-
         while True:
             enemy = game.generate_enemy()
 
             result = start_combat(self.state.player, enemy, presenter, game)
 
             if result == "ESCAPE":
+                # Quitting mid-fight (Esc -> Quit Battle) should still
+                # preserve the latest combat snapshot so Load Game can
+                # resume accurately.
+                try:
+                    from systems.save_manager import save_game
+
+                    save_game(self.state.player, self.state.checkpoint_stage, game.total_elapsed_time)
+                except Exception:
+                    pass
                 return "SCREEN_MAIN_MENU"
 
             if result == "WIN":

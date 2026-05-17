@@ -1,24 +1,24 @@
 {
-    "name": "emmangyan",
+    "name": "Joem",
     "class": "Seeker",
-    "hp": 120,
-    "max_hp": 120,
-    "attack": 19,
-    "level": 2,
-    "exp": 50,
-    "domain_meter": 100,
-    "mental_instability": 1,
-    "death_count": 1,
+    "hp": 140,
+    "max_hp": 140,
+    "attack": 24,
+    "level": 3,
+    "exp": 20,
+    "domain_meter": 0,
+    "mental_instability": 0,
+    "death_count": 0,
     "inventory": [
         "HealItem",
-        "HealItem",
         "DomainChargeItem",
-        "AttackBoostItem"
+        "AttackBoostItem",
+        "HealItem"
     ],
-    "stage": 4,
-    "play_time_seconds": 107,
+    "stage": 5,
+    "play_time_seconds": 298,
     "save_version": 1,
-    "saved_at": "2026-05-13T04:31:15.196460Z",
+    "saved_at": "2026-05-13T10:06:50.789954Z",
     "last_scene": "",
     "notes": ""
 }

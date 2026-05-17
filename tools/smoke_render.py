@@ -1,5 +1,12 @@
+import os
+import sys
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 from core.engine import WindowManager, ESC, RESET
-from systems.ansi_game_presenter import AnsiGamePresenter, _render_at, _pad_ansi_line, _build_ui_test_menu_lines
+from systems.ansi_game_presenter import AnsiGamePresenter, _build_ui_test_menu_lines
 import re
 
 ANSI_RE = re.compile(r"\033\[[0-9;]*m")

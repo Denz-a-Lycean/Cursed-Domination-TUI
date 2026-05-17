@@ -82,7 +82,7 @@ STAGE_DATA = {
     2: {
         "title": "Escalation",
         "threat": "Stage 2 incoming, be ready.",
-        "enemy": {"name": "Fast Curse", "hp": 65, "attack": 9, "enemy_type": "fast"},
+        "enemy": {"name": "Fast Curse", "hp": 55, "attack": 9, "enemy_type": "fast"},
         "exp": 50,
         "reward_item": DomainChargeItem,
         "pre_story": [
@@ -115,7 +115,7 @@ STAGE_DATA = {
     3: {
         "title": "Pressure Spike",
         "threat": "Stage 3 incoming be ready.",
-        "enemy": {"name": "Aggressive Curse", "hp": 90, "attack": 12, "enemy_type": "aggressive"},
+        "enemy": {"name": "Aggressive Curse", "hp": 80, "attack": 12, "enemy_type": "aggressive"},
         "exp": 60,
         "reward_item": AttackBoostItem,
         "pre_story": [
@@ -147,7 +147,7 @@ STAGE_DATA = {
     4: {
         "title": "Distortion",
         "threat": "Stage 4 incoming be ready.",
-        "enemy": {"name": "Elite Curse", "hp": 120, "attack": 15, "enemy_type": "elite"},
+        "enemy": {"name": "Elite Curse", "hp": 90, "attack": 15, "enemy_type": "elite"},
         "exp": 70,
         "reward_item": HealItem,
         "pre_story": [
@@ -321,7 +321,7 @@ class Game:
         enemy_hp = base_hp + player_hp_bonus
         # Final-stage boss uses a fixed HP target as requested.
         if self.current_stage == 5:
-            enemy_hp = 500
+            enemy_hp = 250
 
         return Enemy(
             stage_data["name"],

@@ -2,6 +2,7 @@
 
 import time
 
+from systems.save_manager import save_game
 from utils.effects import format_duration
 
 # UX tuning constants
@@ -223,6 +224,26 @@ class CombatSystem:
             if turn_result == "ESCAPE":
                 return "ESCAPE"
 
+            # Persist mid-fight state on every completed player turn so
+            # exiting mid-battle still resumes accurately.
+            if self.game is not None:
+                try:
+                    # Resume stage should be the current one (Game owns the
+                    # authoritative current_stage for gameplay screens).
+                    self.game.current_stage = int(getattr(self.game, "current_stage", self.enemy.stage) or self.enemy.stage)
+                    self.game._checkpoint_state = self.player.serialize_state()
+                    save_game(self.player, self.game.current_stage, self.game.total_elapsed_time)
+                except Exception:
+                    pass
+
+            if self.game is not None and not self.player.is_alive():
+                # Save the mid-fight state even on defeat so 'Load Game'
+                # can resume from the last checkpoint snapshot.
+                try:
+                    save_game(self.player, self.game.current_stage, self.game.total_elapsed_time)
+                except Exception:
+                    pass
+
             if not self.enemy.is_alive():
                 self.presenter.screen(
                     "Battle Won",
@@ -252,6 +273,10 @@ class CombatSystem:
                     seconds=1.8,
                 )
                 return "LOSE"
+
+        if self.enemy.is_alive():
+            return "LOSE"
+        return "WIN"
 
     def _status_data(self):
         """Structured HUD data for the presenter (no regex parsing required)."""
